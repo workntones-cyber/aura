@@ -347,7 +347,7 @@ def _open_browser():
     """Flaskの起動を待ってからブラウザを開く"""
     import time
     time.sleep(1.5)
-    webbrowser.open("http://127.0.0.1:5000")
+    webbrowser.open("http://127.0.0.1:5001")
 
 
 if __name__ == "__main__":
@@ -356,10 +356,10 @@ if __name__ == "__main__":
 
     if not is_frozen:
         # 通常の開発時はデバッグモード
-        app.run(debug=True)
+        app.run(host="127.0.0.1", port=5001, debug=True)
     else:
         # 配布用：ブラウザを別スレッドで起動してからFlaskを起動
         print("AURA を起動しています...")
         print("ブラウザが開かない場合は http://127.0.0.1:5000 にアクセスしてください")
         threading.Thread(target=_open_browser, daemon=True).start()
-        app.run(host="127.0.0.1", port=5000, debug=False, use_reloader=False)
+        app.run(host="127.0.0.1", port=5001, debug=False, use_reloader=False)

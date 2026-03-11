@@ -750,6 +750,7 @@ main.narrow { max-width: 640px; }
   position: absolute; top: 0; right: 0;
   font-size: 14px; color: var(--muted); text-decoration: none;
   opacity: 0.5; transition: opacity 0.2s;
+  z-index: 10; cursor: pointer;
 }
 .settings-badge-link:hover { opacity: 1; }
 
