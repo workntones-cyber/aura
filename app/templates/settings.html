@@ -107,6 +107,11 @@
         <!-- Mac向け案内 -->
         <div class="mac-guide" id="macGuide" style="display:none;">
 
+          <!-- 全ステップ完了時の表示 -->
+          <div class="mac-guide-ok" id="macAllDone" style="display:none;">
+            ✅ <strong>BlackHole の設定がすべて完了しました。</strong>そのままご利用いただけます。
+          </div>
+
           <!-- ステップガイド（常時表示・完了状態はJSで制御） -->
           <div id="macGuideSteps">
             <div class="mac-guide-title" id="macGuideTitle">
@@ -167,6 +172,10 @@
               <div class="mac-step-body">
                 <div class="mac-step-title">AURAを再起動して完了</div>
                 <div class="mac-step-desc">再起動後、BlackHoleが自動で検出されます。</div>
+                <label class="mac-step-check-label">
+                  <input type="checkbox" id="checkStep5" onchange="saveMacStepCheck(5, this.checked)">
+                  完了した
+                </label>
               </div>
             </div>
           </div>

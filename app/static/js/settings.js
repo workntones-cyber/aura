@@ -219,13 +219,16 @@ async function checkBlackHoleInSettings() {
       }
     }
 
-    // Step3・4はチェックボックスの保存済み状態を復元
-    [3, 4].forEach(n => {
+    // Step3・4・5はチェックボックスの保存済み状態を復元
+    [3, 4, 5].forEach(n => {
       const saved = localStorage.getItem(`macStep${n}`) === 'true';
       const cb    = document.getElementById(`checkStep${n}`);
       if (cb) cb.checked = saved;
       if (saved) markStepDone(n);
     });
+
+    // 全ステップ完了済みなら完了表示
+    if (hasBlackHole) checkAllStepsDone();
 
   } catch (e) {}
 }
@@ -242,8 +245,10 @@ function markStepDone(n) {
 
 function saveMacStepCheck(n, checked) {
   localStorage.setItem(`macStep${n}`, checked);
-  if (checked) markStepDone(n);
-  else {
+  if (checked) {
+    markStepDone(n);
+    checkAllStepsDone();
+  } else {
     // チェックを外したら元に戻す
     const numEl = document.getElementById(`macStepNum${n}`);
     if (numEl) {
@@ -252,5 +257,30 @@ function saveMacStepCheck(n, checked) {
     }
     const stepEl = document.getElementById(`macStep${n}`);
     if (stepEl) stepEl.style.opacity = '1';
+    // 完了表示を非表示に戻す
+    const allDone = document.getElementById('macAllDone');
+    const steps   = document.getElementById('macGuideSteps');
+    if (allDone) allDone.style.display = 'none';
+    if (steps)   steps.style.opacity   = '1';
+  }
+}
+
+function checkAllStepsDone() {
+  const allChecked = [3, 4, 5].every(n =>
+    localStorage.getItem(`macStep${n}`) === 'true'
+  );
+  if (!allChecked) return;
+
+  // ステップをフェードアウト
+  const steps = document.getElementById('macGuideSteps');
+  if (steps) {
+    steps.style.transition = 'opacity 0.8s';
+    steps.style.opacity    = '0';
+    setTimeout(() => {
+      steps.style.display = 'none';
+      // 完了メッセージを表示
+      const allDone = document.getElementById('macAllDone');
+      if (allDone) allDone.style.display = 'block';
+    }, 800);
   }
 }
