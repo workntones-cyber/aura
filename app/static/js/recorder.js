@@ -20,6 +20,7 @@ document.addEventListener('DOMContentLoaded', () => {
   buildVisualizer();
   loadHistory();
   checkApiKey();
+  checkBlackHole();
 
   document.addEventListener('mousemove', e => {
     if (!isDragging || dragId === null) return;
@@ -182,6 +183,40 @@ function showTranscribeError(step1, step2, message) {
     errorDetail.classList.add('visible');
   }
   showToast('❌ ' + message);
+}
+
+// ── BlackHole チェック（Mac・システム音声モード時） ──
+async function checkBlackHole() {
+  // Mac以外はスキップ
+  const isMac = navigator.platform.toUpperCase().includes('MAC');
+  if (!isMac) return;
+
+  try {
+    // 設定を取得してシステム音声モードか確認
+    const settingsRes = await fetch('/api/settings');
+    const settings    = await settingsRes.json();
+    const isSystemAudio = settings.recording_device_id !== "";
+    if (!isSystemAudio) return;
+
+    // デバイス一覧を取得してBlackHoleが存在するか確認
+    const devRes  = await fetch('/api/devices');
+    const devices = await devRes.json();
+    const hasBlackHole = devices.some(d =>
+      d.name.toLowerCase().includes('blackhole')
+    );
+
+    if (!hasBlackHole) {
+      document.getElementById('blackholeBanner').style.display = 'flex';
+      // 録音ボタンも無効化
+      const btn = document.getElementById('recordBtn');
+      btn.disabled = true;
+      btn.title = 'BlackHoleをインストールしてください';
+      document.getElementById('recordLabel').textContent =
+        'BlackHoleをインストールしてください';
+    }
+  } catch (e) {
+    // 取得失敗時は何もしない
+  }
 }
 
 // ── 過去データ一覧 ────────────────────────────────

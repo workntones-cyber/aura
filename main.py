@@ -231,6 +231,41 @@ def serve_audio(filename):
 
 
 # ══════════════════════════════════════════════════
+#  録音デバイス API
+# ══════════════════════════════════════════════════
+
+@app.route("/api/devices", methods=["GET"])
+def get_devices():
+    """
+    利用可能な録音デバイス一覧を返す。
+    システム音声デバイス（ステレオミキサー・BlackHole）を自動でハイライト。
+    Response: [{"id": int, "name": str, "is_system_audio": bool}, ...]
+    """
+    import sounddevice as sd
+    devices = sd.query_devices()
+    result  = []
+    # システム音声デバイスのキーワード
+    system_keywords = [
+        "stereo mix", "ステレオ ミキサー", "ステレオミキサー",
+        "blackhole", "black hole",
+        "loopback", "what u hear", "wave out mix",
+        "virtual audio", "soundflower",
+    ]
+    for i, dev in enumerate(devices):
+        if dev["max_input_channels"] < 1:
+            continue  # 入力チャンネルなしはスキップ
+        name     = dev["name"]
+        is_sys   = any(kw in name.lower() for kw in system_keywords)
+        result.append({
+            "id":               i,
+            "name":             name,
+            "is_system_audio":  is_sys,
+            "channels":         dev["max_input_channels"],
+        })
+    return jsonify(result), 200
+
+
+# ══════════════════════════════════════════════════
 #  設定 API
 # ══════════════════════════════════════════════════
 
@@ -268,9 +303,10 @@ def settings_get():
     # 画面表示用に末尾4文字以外をマスク
     masked = ("*" * (len(api_key) - 4) + api_key[-4:]) if len(api_key) > 4 else api_key
     return jsonify({
-        "ai_mode": env.get("AI_MODE", "personal"),
-        "groq_api_key": masked,
-        "has_groq_key": bool(api_key),  # APIキー登録済みかどうか
+        "ai_mode":             env.get("AI_MODE", "personal"),
+        "groq_api_key":        masked,
+        "has_groq_key":        bool(api_key),
+        "recording_device_id": env.get("RECORDING_DEVICE_ID", ""),
     }), 200
 
 
@@ -283,12 +319,16 @@ def settings_save():
     """
     data = request.get_json(silent=True) or {}
     ai_mode    = data.get("ai_mode", "personal")
-    groq_key = data.get("groq_api_key", "").strip()
+    groq_key  = data.get("groq_api_key", "").strip()
+    device_id = data.get("recording_device_id", "")
 
     save_data = {"AI_MODE": ai_mode}
     # キーが入力されていれば保存（マスク済みの場合は上書きしない）
     if groq_key and not groq_key.startswith("*"):
         save_data["GROQ_API_KEY"] = groq_key
+    # デバイスID（空文字はデフォルトデバイス）
+    if device_id != "":
+        save_data["RECORDING_DEVICE_ID"] = str(device_id)
 
     try:
         _write_env(save_data)

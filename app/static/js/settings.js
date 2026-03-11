@@ -125,3 +125,58 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.target === e.currentTarget) closeModal();
   });
 });
+
+// ── 録音ソース切替 ───────────────────────────────
+let currentRecSource = 'mic';
+
+function selectRecSource(source, loadDev = true) {
+  currentRecSource = source;
+
+  document.querySelectorAll('.rec-source-card').forEach(c => c.classList.remove('selected'));
+  document.getElementById(`src-${source}`)?.classList.add('selected');
+
+  const area = document.getElementById('deviceSelectArea');
+  if (source === 'system') {
+    area.classList.add('visible');
+    if (loadDev) loadDevices('');
+    // OS判定で案内表示
+    const isMac = navigator.platform.toUpperCase().includes('MAC');
+    document.getElementById('windowsNotice').style.display = isMac ? 'none' : 'block';
+    document.getElementById('macNotice').style.display     = isMac ? 'block' : 'none';
+  } else {
+    area.classList.remove('visible');
+  }
+}
+
+async function loadDevices(selectedId) {
+  const select = document.getElementById('deviceSelect');
+  try {
+    const res     = await fetch('/api/devices');
+    const devices = await res.json();
+    select.innerHTML = '';
+
+    // デフォルト選択肢
+    const defOpt = document.createElement('option');
+    defOpt.value = ''; defOpt.textContent = '-- デバイスを選択 --';
+    select.appendChild(defOpt);
+
+    devices.forEach(dev => {
+      const opt = document.createElement('option');
+      opt.value = dev.id;
+      opt.textContent = dev.is_system_audio
+        ? `⭐ ${dev.name} （システム音声）`
+        : dev.name;
+      if (dev.is_system_audio) opt.className = 'system-audio';
+      if (String(dev.id) === String(selectedId)) opt.selected = true;
+      select.appendChild(opt);
+    });
+
+    // システム音声デバイスが未選択なら自動で最初のものを選ぶ
+    if (!selectedId) {
+      const sysDev = devices.find(d => d.is_system_audio);
+      if (sysDev) select.value = sysDev.id;
+    }
+  } catch (e) {
+    select.innerHTML = '<option value="">デバイスの取得に失敗しました</option>';
+  }
+}

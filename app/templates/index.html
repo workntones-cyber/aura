@@ -7,7 +7,6 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/css/style.css">
-  <link rel="icon" type="image/x-icon" href="/static/aura.ico">
 </head>
 <body>
 
@@ -28,6 +27,19 @@
       <strong>APIキーが設定されていません</strong><br>
       録音はできますが、文字起こし・要約には Groq APIキーが必要です。
       <a href="/settings" class="api-warning-link">設定画面で入力する →</a>
+    </div>
+  </div>
+
+  <!-- BlackHole未インストール警告（Mac・システム音声モード時のみ） -->
+  <div class="api-warning-banner" id="blackholeBanner" style="display:none;">
+    <div class="api-warning-icon">⚠️</div>
+    <div class="api-warning-text">
+      <strong>BlackHole がインストールされていません</strong><br>
+      Mac でオンライン会議の音声を録音するには BlackHole が必要です。
+      <a href="https://existential.audio/blackhole/" target="_blank" class="api-warning-link">
+        BlackHole をインストール →
+      </a>
+      インストール後、Audio MIDI設定で「複数出力装置」を設定してください。
     </div>
   </div>
 

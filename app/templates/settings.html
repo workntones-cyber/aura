@@ -7,7 +7,6 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/css/style.css">
-  <link rel="icon" type="image/x-icon" href="/static/aura.ico">
 </head>
 <body>
 
@@ -73,6 +72,56 @@
           Groq Console で取得 →
         </a>
       </p>
+    </div>
+  </div>
+
+
+  <!-- 録音ソース設定 -->
+  <div class="settings-section">
+    <div class="settings-section-title">🎙️ 録音ソース</div>
+    <div class="settings-card">
+
+      <!-- モード選択 -->
+      <div class="rec-source-cards">
+        <div class="rec-source-card" id="src-mic" onclick="selectRecSource('mic')">
+          <div class="rec-source-check">✓</div>
+          <div class="rec-source-icon">🎤</div>
+          <div class="rec-source-name">マイク入力</div>
+          <div class="rec-source-desc">会議室・対面での録音に最適</div>
+        </div>
+        <div class="rec-source-card" id="src-system" onclick="selectRecSource('system')">
+          <div class="rec-source-check">✓</div>
+          <div class="rec-source-icon">🖥️</div>
+          <div class="rec-source-name">システム音声</div>
+          <div class="rec-source-desc">Zoom・Meet等のオンライン会議に対応</div>
+        </div>
+      </div>
+
+      <!-- デバイス選択（システム音声選択時に表示） -->
+      <div class="device-select-area" id="deviceSelectArea">
+        <div style="font-size:13px;color:var(--muted);margin-bottom:10px;">
+          録音デバイスを選択してください
+        </div>
+        <select class="device-select" id="deviceSelect">
+          <option value="">読み込み中...</option>
+        </select>
+
+        <!-- Windows向け案内 -->
+        <div class="device-notice" id="windowsNotice" style="display:none;">
+          💡 <strong>Windowsの場合：</strong>「ステレオ ミキサー」が表示されない場合は、
+          サウンド設定 → 録音タブ → 右クリック →「無効なデバイスの表示」で有効化してください。
+        </div>
+
+        <!-- Mac向け案内 -->
+        <div class="device-notice" id="macNotice" style="display:none;">
+          💡 <strong>Macの場合：</strong>システム音声の録音には
+          <a href="https://existential.audio/blackhole/" target="_blank"
+            style="color:var(--accent2);">BlackHole</a>
+          のインストールが必要です。
+          インストール後、Audio MIDI設定で「複数出力装置」を設定してください。
+        </div>
+      </div>
+
     </div>
   </div>
 

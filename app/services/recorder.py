@@ -17,9 +17,27 @@ CHUNK_FRAMES  = SAMPLE_RATE * 60 * CHUNK_MINUTES  # 1チャンクのフレーム
 
 # PyInstallerで固めた場合は実行ファイルと同じ場所に保存
 if getattr(sys, "frozen", False):
-    UPLOADS_DIR = Path(sys.executable).resolve().parent / "uploads"
+    _BASE       = Path(sys.executable).resolve().parent
+    UPLOADS_DIR = _BASE / "uploads"
+    ENV_PATH    = _BASE / ".env"
 else:
     UPLOADS_DIR = Path(__file__).resolve().parent.parent.parent / "uploads"
+    ENV_PATH    = Path(__file__).resolve().parent.parent.parent / ".env"
+
+
+def _get_device_id() -> int | None:
+    """
+    .env の RECORDING_DEVICE_ID を読み込んで返す。
+    未設定の場合は None（sounddeviceのデフォルト）を返す。
+    """
+    if not ENV_PATH.exists():
+        return None
+    for line in ENV_PATH.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line.startswith("RECORDING_DEVICE_ID="):
+            val = line.split("=", 1)[1].strip()
+            return int(val) if val.lstrip("-").isdigit() else None
+    return None
 
 # ── 状態管理 ──────────────────────────────────────
 _recording   = False
@@ -103,7 +121,10 @@ def start() -> dict:
         _frame_count = 0
         _recording   = True
 
+        device_id = _get_device_id()
+        print(f"[recorder] 使用デバイス: {device_id if device_id is not None else 'デフォルト'}")
         _stream = sd.InputStream(
+            device=device_id,
             samplerate=SAMPLE_RATE,
             channels=CHANNELS,
             dtype=DTYPE,
