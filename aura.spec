@@ -74,5 +74,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    # icon='app/static/icon.ico',  # アイコンを用意したら有効化
+    icon='app/static/aura.ico',
 )
