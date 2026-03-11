@@ -179,6 +179,23 @@ def recordings_delete(record_id: int):
     return jsonify({"status": "deleted"}), 200
 
 
+
+@app.route("/api/recordings/all", methods=["DELETE"])
+def recordings_delete_all():
+    """
+    すべての録音データをDBとWAVファイルの両方から削除する。
+    Response: {"status": "deleted", "count": int}
+    """
+    all_records = get_all_recordings()
+    count = 0
+    for record in all_records:
+        if record.get("wav_file"):
+            delete_wav(record["wav_file"])
+        delete_recording(record["id"])
+        count += 1
+    return jsonify({"status": "deleted", "count": count}), 200
+
+
 # ══════════════════════════════════════════════════
 #  音声ファイル配信 API
 # ══════════════════════════════════════════════════

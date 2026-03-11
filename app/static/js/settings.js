@@ -93,3 +93,35 @@ function showToast(msg) {
   t.textContent = msg; t.classList.add('show');
   setTimeout(() => t.classList.remove('show'), 3000);
 }
+
+// ── 全削除モーダル ────────────────────────────────
+function confirmDeleteAll() {
+  document.getElementById('deleteModal').classList.add('visible');
+}
+
+function closeModal() {
+  document.getElementById('deleteModal').classList.remove('visible');
+}
+
+async function deleteAll() {
+  closeModal();
+
+  try {
+    const res  = await fetch('/api/recordings/all', { method: 'DELETE' });
+    const data = await res.json();
+    if (data.status === 'deleted') {
+      showToast(`🗑️ ${data.count}件のデータを削除しました`);
+    } else {
+      showToast('❌ ' + (data.message || '削除に失敗しました'));
+    }
+  } catch (e) {
+    showToast('❌ ネットワークエラーが発生しました');
+  }
+}
+
+// モーダル外クリックで閉じる
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('deleteModal').addEventListener('click', e => {
+    if (e.target === e.currentTarget) closeModal();
+  });
+});

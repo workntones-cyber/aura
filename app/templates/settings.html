@@ -78,6 +78,46 @@
   <!-- 保存ボタン -->
   <button class="save-btn" id="saveBtn" onclick="saveSettings()">設定を保存</button>
 
+  <!-- データ管理 -->
+  <div class="settings-section" style="margin-top: 40px;">
+    <div class="settings-section-title">🗄️ データ管理</div>
+    <div class="settings-card" style="padding: 20px;">
+
+      <!-- 注意書き -->
+      <div class="danger-notice">
+        ⚠️ <strong>注意：この操作は取り消せません</strong><br>
+        すべての録音データ（タイトル・メモ・文字起こし・要約・音声ファイル）が完全に削除されます。
+        削除前に必要なデータをエクスポートしてください。
+      </div>
+
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-top: 16px;">
+        <div>
+          <div style="font-size:14px; font-weight:600; margin-bottom:4px;">すべての録音データを削除</div>
+          <div style="font-size:12px; color:var(--muted);">DBとすべての音声ファイルを削除します</div>
+        </div>
+        <button class="danger-btn" onclick="confirmDeleteAll()">🗑️ 全削除</button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- 確認モーダル -->
+  <div class="modal-overlay" id="deleteModal">
+    <div class="modal">
+      <div class="modal-icon">🗑️</div>
+      <div class="modal-title">本当に削除しますか？</div>
+      <div class="modal-desc">
+        すべての録音データと音声ファイルが<br>
+        <strong>完全に削除されます。</strong><br>
+        この操作は取り消せません。
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn-cancel" onclick="closeModal()">キャンセル</button>
+        <button class="modal-btn-delete" onclick="deleteAll()">削除する</button>
+      </div>
+    </div>
+  </div>
+
 </main>
 
 <div class="toast" id="toast"></div>
