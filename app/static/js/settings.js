@@ -94,9 +94,74 @@ async function saveSettings() {
       btn.classList.remove('saved');
     }, 2000);
     showToast('✅ 設定を保存しました');
+    // ビジネス用モードの場合はモデルダウンロード進捗を表示
+    if (currentMode === 'business') {
+      startModelStatusPolling();
+    } else {
+      hideModelStatus();
+    }
   } else {
     showToast('❌ 保存に失敗しました');
   }
+}
+
+// ── モデルダウンロード進捗 ────────────────────────
+let _modelPollingTimer = null;
+
+function startModelStatusPolling() {
+  if (_modelPollingTimer) return; // すでにポーリング中
+  showModelStatus('⏳ AIモデルを確認中...');
+  _modelPollingTimer = setInterval(async () => {
+    try {
+      const res  = await fetch('/api/model/status');
+      const data = await res.json();
+      if (data.status === 'downloading') {
+        showModelStatus('⏳ AIモデルをダウンロード中です（約1.5GB）。このまましばらくお待ちください...');
+      } else if (data.status === 'ready') {
+        showModelStatus('✅ AIモデルの準備が完了しました。録音を開始できます。', 'ready');
+        clearInterval(_modelPollingTimer);
+        _modelPollingTimer = null;
+        setTimeout(hideModelStatus, 5000);
+      } else if (data.status === 'error') {
+        showModelStatus(`❌ モデルのダウンロードに失敗しました: ${data.error}`, 'error');
+        clearInterval(_modelPollingTimer);
+        _modelPollingTimer = null;
+      }
+      // idle の場合はまだ開始前なので継続
+    } catch (e) {}
+  }, 3000);
+}
+
+function showModelStatus(msg, type = '') {
+  let el = document.getElementById('modelStatusBar');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'modelStatusBar';
+    el.className = 'model-status-bar';
+    const notice = document.getElementById('businessNotice');
+    if (notice) notice.appendChild(el);
+  }
+  el.textContent  = msg;
+  el.className    = 'model-status-bar' + (type ? ' model-status-' + type : '');
+}
+
+function hideModelStatus() {
+  const el = document.getElementById('modelStatusBar');
+  if (el) el.remove();
+}
+
+// ページ読み込み時にビジネス用モードなら状態確認
+async function checkModelStatusOnLoad() {
+  try {
+    const res  = await fetch('/api/model/status');
+    const data = await res.json();
+    if (data.status === 'downloading') {
+      startModelStatusPolling();
+    } else if (data.status === 'ready') {
+      showModelStatus('✅ AIモデルの準備が完了しています。', 'ready');
+      setTimeout(hideModelStatus, 3000);
+    }
+  } catch (e) {}
 }
 
 // ── ユーティリティ ────────────────────────────────

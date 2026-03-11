@@ -209,10 +209,46 @@ def _call_llama(client: Groq, transcript: str) -> str:
 # ── faster-whisper（ビジネス用） ───────────────────
 
 # モデルキャッシュ（再利用してメモリ節約）
-_whisper_model = None
+_whisper_model      = None
 _whisper_model_name = None
 
 FASTER_WHISPER_MODEL = "medium"
+
+# モデルダウンロード状態管理
+_model_status = "idle"   # idle / downloading / ready / error
+_model_error  = ""
+
+def get_model_status() -> dict:
+    """モデルのダウンロード・ロード状態を返す"""
+    return {
+        "status": _model_status,
+        "error":  _model_error,
+        "model":  FASTER_WHISPER_MODEL,
+    }
+
+def preload_model():
+    """
+    バックグラウンドスレッドでモデルをプリロードする。
+    設定画面でビジネス用モードを選択した時点で呼び出す。
+    """
+    import threading
+    t = threading.Thread(target=_preload_model_thread, daemon=True)
+    t.start()
+
+def _preload_model_thread():
+    global _model_status, _model_error
+    if _model_status in ("downloading", "ready"):
+        return  # すでに進行中またはロード済み
+    try:
+        _model_status = "downloading"
+        print("[transcriber] バックグラウンドでモデルをプリロード中...")
+        _get_whisper_model()
+        _model_status = "ready"
+        print("[transcriber] モデルプリロード完了")
+    except Exception as e:
+        _model_status = "error"
+        _model_error  = str(e)
+        print(f"[transcriber] モデルプリロードエラー: {e}")
 
 
 def _get_whisper_model():

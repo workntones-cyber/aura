@@ -334,9 +334,30 @@ def settings_save():
 
     try:
         _write_env(save_data)
+        # ビジネス用モードに切り替えた場合はモデルをバックグラウンドでプリロード
+        if ai_mode == "business":
+            import platform as _platform
+            is_win = _platform.system() == "Windows"
+            is_arm = _platform.machine() in ("arm64", "aarch64")
+            if is_win or is_arm:
+                from app.services.transcriber import preload_model
+                preload_model()
         return jsonify({"status": "saved"}), 200
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/model/status", methods=["GET"])
+def model_status():
+    """
+    モデルのダウンロード・ロード状態を返す。
+    Response: {"status": "idle"|"downloading"|"ready"|"error", "error": str}
+    """
+    try:
+        from app.services.transcriber import get_model_status
+        return jsonify(get_model_status()), 200
+    except Exception as e:
+        return jsonify({"status": "idle", "error": str(e)}), 200
 
 
 # ══════════════════════════════════════════════════
