@@ -306,6 +306,7 @@ def settings_get():
         "ai_mode":             env.get("AI_MODE", "personal"),
         "groq_api_key":        masked,
         "has_groq_key":        bool(api_key),
+        "recording_source":    env.get("RECORDING_SOURCE", "mic"),
         "recording_device_id": env.get("RECORDING_DEVICE_ID", ""),
     }), 200
 
@@ -321,13 +322,14 @@ def settings_save():
     ai_mode    = data.get("ai_mode", "personal")
     groq_key  = data.get("groq_api_key", "").strip()
     device_id = data.get("recording_device_id", "")
+    rec_source = data.get("recording_source", "mic")
 
-    save_data = {"AI_MODE": ai_mode}
+    save_data = {"AI_MODE": ai_mode, "RECORDING_SOURCE": rec_source}
     # キーが入力されていれば保存（マスク済みの場合は上書きしない）
     if groq_key and not groq_key.startswith("*"):
         save_data["GROQ_API_KEY"] = groq_key
-    # デバイスID（空文字はデフォルトデバイス）
-    if device_id != "":
+    # デバイスID（空文字・マイナス値は保存しない＝デフォルトデバイス使用）
+    if device_id and str(device_id).isdigit():
         save_data["RECORDING_DEVICE_ID"] = str(device_id)
 
     try:

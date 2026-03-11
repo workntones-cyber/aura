@@ -129,6 +129,19 @@ async function runTranscribe(recordId) {
   step1.classList.remove('error'); step2.classList.remove('error');
   step1.classList.add('active');
 
+  // ビジネス用モード（faster-whisper）の場合、初回ダウンロードの注意書きを表示
+  const downloadNotice = document.getElementById('modelDownloadNotice');
+  if (downloadNotice) {
+    try {
+      const settingsRes = await fetch('/api/settings');
+      const settings    = await settingsRes.json();
+      if (settings.ai_mode === 'business') {
+        downloadNotice.classList.add('visible');
+        step1.querySelector('span').textContent = '文字起こしを準備中...';
+      }
+    } catch (e) {}
+  }
+
   let data;
   try {
     const res = await fetch('/api/transcribe', {
@@ -148,11 +161,20 @@ async function runTranscribe(recordId) {
     return;
   }
 
+  if (downloadNotice) downloadNotice.classList.remove('visible');
   step1.classList.remove('active'); step1.classList.add('done');
   step1.querySelector('.step-icon').textContent = '✓';
   step1.querySelector('span').textContent = '文字起こし完了';
 
   step2.classList.add('active');
+  // ビジネス用モードの場合、要約ステップに補足メッセージを表示
+  try {
+    const settingsRes2 = await fetch('/api/settings');
+    const settings2    = await settingsRes2.json();
+    if (settings2.ai_mode === 'business') {
+      step2.querySelector('span').textContent = 'AI要約中... （初回モデルDL時は数分〜10分かかる場合があります）';
+    }
+  } catch (e) {}
   await new Promise(r => setTimeout(r, 500));
   step2.classList.remove('active'); step2.classList.add('done');
   step2.querySelector('.step-icon').textContent = '✓';

@@ -1,3 +1,12 @@
+"""
+recorder.py
+録音サービス
+
+録音ソースに応じて以下を切り替える：
+  - mic    : sounddevice（マイク入力）
+  - system : soundcard WASAPI ループバック（システム音声・追加設定不要）
+"""
+
 import os
 import sys
 import wave
@@ -6,16 +15,14 @@ from datetime import datetime
 from pathlib import Path
 
 import numpy as np
-import sounddevice as sd
 
 # ── 設定 ──────────────────────────────────────────
-SAMPLE_RATE   = 16000        # Hz（音声認識最適）
-CHANNELS      = 1            # モノラル（文字起こしに最適）
-DTYPE         = "int16"      # 16bit PCM
-CHUNK_MINUTES = 10           # 自動分割間隔（分）
-CHUNK_FRAMES  = SAMPLE_RATE * 60 * CHUNK_MINUTES  # 1チャンクのフレーム数
+SAMPLE_RATE   = 16000
+CHANNELS      = 1
+DTYPE         = "int16"
+CHUNK_MINUTES = 10
+CHUNK_FRAMES  = SAMPLE_RATE * 60 * CHUNK_MINUTES
 
-# PyInstallerで固めた場合は実行ファイルと同じ場所に保存
 if getattr(sys, "frozen", False):
     _BASE       = Path(sys.executable).resolve().parent
     UPLOADS_DIR = _BASE / "uploads"
@@ -24,51 +31,67 @@ else:
     UPLOADS_DIR = Path(__file__).resolve().parent.parent.parent / "uploads"
     ENV_PATH    = Path(__file__).resolve().parent.parent.parent / ".env"
 
+# ── 状態管理 ──────────────────────────────────────
+_recording    = False
+_frames: list[np.ndarray] = []
+_stream       = None
+_lock         = threading.Lock()
+_session_id   = ""
+_chunk_index  = 0
+_frame_count  = 0
+_record_thread = None  # soundcard用スレッド
 
-def _get_device_id() -> int | None:
-    """
-    .env の RECORDING_DEVICE_ID を読み込んで返す。
-    未設定の場合は None（sounddeviceのデフォルト）を返す。
-    """
+
+# ── .env 読み込み ─────────────────────────────────
+def _read_env() -> dict:
+    env = {}
     if not ENV_PATH.exists():
-        return None
+        return env
     for line in ENV_PATH.read_text(encoding="utf-8").splitlines():
         line = line.strip()
-        if line.startswith("RECORDING_DEVICE_ID="):
-            val = line.split("=", 1)[1].strip()
-            return int(val) if val.lstrip("-").isdigit() else None
-    return None
-
-# ── 状態管理 ──────────────────────────────────────
-_recording   = False
-_frames: list[np.ndarray] = []
-_stream: sd.InputStream | None = None
-_lock        = threading.Lock()
-_session_id  = ""           # 録音セッションID（チャンクファイルの命名に使用）
-_chunk_index = 0            # 現在のチャンク番号
-_frame_count = 0            # 現在のチャンク内フレーム数
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        env[key.strip()] = val.strip()
+    return env
 
 
-def _ensure_uploads_dir() -> None:
-    """uploads/ フォルダが存在しない場合は作成する"""
+def _get_recording_source() -> str:
+    return _read_env().get("RECORDING_SOURCE", "mic")
+
+
+def _get_device_id() -> int | None:
+    env = _read_env()
+    val = env.get("RECORDING_DEVICE_ID", "").strip()
+    if not val or not val.isdigit():
+        return None
+    try:
+        import sounddevice as sd
+        device_id = int(val)
+        devices   = sd.query_devices()
+        if device_id < len(devices) and devices[device_id]["max_input_channels"] > 0:
+            return device_id
+        print(f"[recorder] デバイスID {device_id} は無効。デフォルトを使用します。")
+        return None
+    except Exception:
+        return None
+
+
+# ── ファイル操作 ──────────────────────────────────
+def _ensure_uploads_dir():
     UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def _save_wav(filepath: Path, audio_data: np.ndarray) -> None:
-    """音声データをWAVファイルに保存し、パーミッションを設定する"""
+def _save_wav(filepath: Path, audio_data: np.ndarray):
     with wave.open(str(filepath), "wb") as wf:
         wf.setnchannels(CHANNELS)
-        wf.setsampwidth(2)  # int16 = 2bytes
+        wf.setsampwidth(2)
         wf.setframerate(SAMPLE_RATE)
         wf.writeframes(audio_data.tobytes())
-    os.chmod(str(filepath), 0o644)  # macOS対応
+    os.chmod(str(filepath), 0o644)
 
 
-def _flush_chunk(frames: list[np.ndarray], session_id: str, chunk_index: int) -> Path:
-    """
-    現在のフレームバッファをチャンクWAVファイルとして保存する。
-    Returns: 保存したファイルのパス
-    """
+def _flush_chunk(frames: list, session_id: str, chunk_index: int) -> Path:
     _ensure_uploads_dir()
     chunk_path = UPLOADS_DIR / f"{session_id}_part{chunk_index}.wav"
     audio_data = np.concatenate(frames, axis=0)
@@ -77,39 +100,130 @@ def _flush_chunk(frames: list[np.ndarray], session_id: str, chunk_index: int) ->
     return chunk_path
 
 
-def _callback(indata: np.ndarray, frames: int, time, status) -> None:
-    """
-    sounddevice のコールバック。
-    CHUNK_FRAMES を超えたら自動でチャンクファイルを保存する。
-    """
-    global _frames, _chunk_index, _frame_count
+def _merge_chunks(chunk_paths: list) -> np.ndarray:
+    all_frames = []
+    for path in chunk_paths:
+        with wave.open(str(path), "rb") as wf:
+            raw = wf.readframes(wf.getnframes())
+            all_frames.append(np.frombuffer(raw, dtype=np.int16))
+    return np.concatenate(all_frames, axis=0)
 
+
+# ── sounddevice コールバック（マイク入力） ────────
+def _sd_callback(indata, frames, time, status):
+    global _frames, _chunk_index, _frame_count
     if status:
         print(f"[recorder] sounddevice status: {status}")
-
     with _lock:
         if not _recording:
             return
-
         _frames.append(indata.copy())
         _frame_count += len(indata)
-
-        # チャンクサイズを超えたら自動分割
         if _frame_count >= CHUNK_FRAMES:
-            frames_to_save = list(_frames)
-            _flush_chunk(frames_to_save, _session_id, _chunk_index)
+            _flush_chunk(list(_frames), _session_id, _chunk_index)
             _chunk_index += 1
-            _frames = []
-            _frame_count = 0
+            _frames       = []
+            _frame_count  = 0
 
 
+# ── pyaudiowpatch ループバック録音スレッド（システム音声） ──
+def _soundcard_record_thread():
+    """
+    pyaudiowpatch の WASAPIループバックを使ってシステム音声を録音する。
+    追加ドライバー不要でWindows標準機能のみで動作。
+    """
+    global _frames, _chunk_index, _frame_count, _recording
+
+    try:
+        import pyaudiowpatch as pyaudio
+
+        pa       = pyaudio.PyAudio()
+        chunk    = 1024
+
+        # WASAPIループバックデバイスを自動検出
+        wasapi_info     = pa.get_host_api_info_by_type(pyaudio.paWASAPI)
+        default_out_idx = wasapi_info["defaultOutputDevice"]
+        default_out     = pa.get_device_info_by_index(default_out_idx)
+
+        # ループバックデバイスを探す
+        loopback_device = None
+        for i in range(pa.get_device_count()):
+            dev = pa.get_device_info_by_index(i)
+            if (dev.get("isLoopbackDevice", False) and
+                default_out["name"] in dev["name"]):
+                loopback_device = dev
+                loopback_device["index"] = i
+                break
+
+        if loopback_device is None:
+            # フォールバック：最初のループバックデバイスを使用
+            for i in range(pa.get_device_count()):
+                dev = pa.get_device_info_by_index(i)
+                if dev.get("isLoopbackDevice", False):
+                    loopback_device = dev
+                    loopback_device["index"] = i
+                    break
+
+        if loopback_device is None:
+            print("[recorder] WASAPIループバックデバイスが見つかりません")
+            _recording = False
+            pa.terminate()
+            return
+
+        print(f"[recorder] WASAPIループバック: {loopback_device['name']}")
+
+        stream = pa.open(
+            format=pyaudio.paInt16,
+            channels=int(loopback_device["maxInputChannels"]),
+            rate=int(loopback_device["defaultSampleRate"]),
+            frames_per_buffer=chunk,
+            input=True,
+            input_device_index=loopback_device["index"],
+        )
+
+        src_channels   = int(loopback_device["maxInputChannels"])
+        src_samplerate = int(loopback_device["defaultSampleRate"])
+
+        while _recording:
+            raw = stream.read(chunk, exception_on_overflow=False)
+            data = np.frombuffer(raw, dtype=np.int16)
+
+            # ステレオ→モノラル変換
+            if src_channels > 1:
+                data = data.reshape(-1, src_channels).mean(axis=1).astype(np.int16)
+
+            # サンプルレート変換（16000Hz に合わせる）
+            if src_samplerate != SAMPLE_RATE:
+                ratio      = SAMPLE_RATE / src_samplerate
+                new_length = int(len(data) * ratio)
+                indices    = np.linspace(0, len(data) - 1, new_length)
+                data       = np.interp(indices, np.arange(len(data)), data).astype(np.int16)
+
+            with _lock:
+                _frames.append(data)
+                _frame_count += len(data)
+                if _frame_count >= CHUNK_FRAMES:
+                    _flush_chunk(list(_frames), _session_id, _chunk_index)
+                    _chunk_index += 1
+                    _frames       = []
+                    _frame_count  = 0
+
+        stream.stop_stream()
+        stream.close()
+        pa.terminate()
+        print("[recorder] WASAPIループバック録音停止")
+
+    except ImportError:
+        print("[recorder] pyaudiowpatch 未インストール。sounddevice にフォールバックします。")
+        _recording = False
+    except Exception as e:
+        print(f"[recorder] pyaudiowpatch エラー: {e}")
+        _recording = False
+
+
+# ── 録音開始 ──────────────────────────────────────
 def start() -> dict:
-    """
-    録音を開始する。
-    Returns:
-        {"status": "started"} or {"status": "error", "message": str}
-    """
-    global _recording, _frames, _stream, _session_id, _chunk_index, _frame_count
+    global _recording, _frames, _stream, _session_id, _chunk_index, _frame_count, _record_thread
 
     if _recording:
         return {"status": "error", "message": "すでに録音中です"}
@@ -120,18 +234,27 @@ def start() -> dict:
         _chunk_index = 0
         _frame_count = 0
         _recording   = True
+        source       = _get_recording_source()
 
-        device_id = _get_device_id()
-        print(f"[recorder] 使用デバイス: {device_id if device_id is not None else 'デフォルト'}")
-        _stream = sd.InputStream(
-            device=device_id,
-            samplerate=SAMPLE_RATE,
-            channels=CHANNELS,
-            dtype=DTYPE,
-            callback=_callback,
-        )
-        _stream.start()
-        print(f"[recorder] 録音開始: {_session_id}")
+        if source == "system":
+            # WASAPIループバック（システム音声）
+            _record_thread = threading.Thread(target=_soundcard_record_thread, daemon=True)
+            _record_thread.start()
+            print(f"[recorder] システム音声録音開始 (pyaudiowpatch WASAPI): {_session_id}")
+        else:
+            # sounddevice（マイク入力）
+            import sounddevice as sd
+            device_id = _get_device_id()
+            print(f"[recorder] マイク録音開始 デバイス:{device_id if device_id is not None else 'デフォルト'}: {_session_id}")
+            _stream = sd.InputStream(
+                device=device_id,
+                samplerate=SAMPLE_RATE,
+                channels=CHANNELS,
+                dtype=DTYPE,
+                callback=_sd_callback,
+            )
+            _stream.start()
+
         return {"status": "started"}
 
     except Exception as e:
@@ -139,37 +262,30 @@ def start() -> dict:
         return {"status": "error", "message": str(e)}
 
 
+# ── 録音停止 ──────────────────────────────────────
 def stop() -> dict:
-    """
-    録音を停止する。
-    チャンクファイルをすべて結合してメインWAVファイルを作成する。
-
-    Returns:
-        {
-            "status": "stopped",
-            "filename": str,       # メインWAVファイル名
-            "filepath": str,
-            "duration": float,     # 録音時間（秒）
-            "chunks": int,         # 分割数
-        }
-        or {"status": "error", "message": str}
-    """
-    global _recording, _stream
+    global _recording, _stream, _record_thread
 
     if not _recording:
         return {"status": "error", "message": "録音中ではありません"}
 
     try:
         _recording = False
+
+        # sounddevice停止
         if _stream:
             _stream.stop()
             _stream.close()
             _stream = None
 
+        # soundcardスレッド終了待ち
+        if _record_thread and _record_thread.is_alive():
+            _record_thread.join(timeout=3)
+            _record_thread = None
+
         with _lock:
             remaining_frames = list(_frames)
 
-        # 残りフレームをチャンクとして保存
         _ensure_uploads_dir()
         if remaining_frames:
             _flush_chunk(remaining_frames, _session_id, _chunk_index)
@@ -180,23 +296,19 @@ def stop() -> dict:
         if total_chunks == 0:
             return {"status": "error", "message": "録音データがありません（無音）"}
 
-        # チャンクファイルを収集
         chunk_paths = sorted(
             UPLOADS_DIR.glob(f"{_session_id}_part*.wav"),
             key=lambda p: int(p.stem.split("_part")[1])
         )
 
-        # 全チャンクを結合してメインWAVを作成
         main_filename = f"{_session_id}.wav"
         main_filepath = UPLOADS_DIR / main_filename
         all_audio     = _merge_chunks(chunk_paths)
         _save_wav(main_filepath, all_audio)
         duration      = len(all_audio) / SAMPLE_RATE
 
-        # チャンクファイルを削除
         for p in chunk_paths:
             p.unlink()
-            print(f"[recorder] チャンク削除: {p.name}")
 
         print(f"[recorder] 録音完了: {main_filename} ({duration:.1f}秒, {total_chunks}チャンク)")
         return {
@@ -212,27 +324,12 @@ def stop() -> dict:
         return {"status": "error", "message": str(e)}
 
 
-def _merge_chunks(chunk_paths: list[Path]) -> np.ndarray:
-    """複数のWAVチャンクファイルを1つのndarrayに結合する"""
-    all_frames = []
-    for path in chunk_paths:
-        with wave.open(str(path), "rb") as wf:
-            raw = wf.readframes(wf.getnframes())
-            all_frames.append(np.frombuffer(raw, dtype=np.int16))
-    return np.concatenate(all_frames, axis=0)
-
-
 def get_status() -> dict:
-    """現在の録音状態と経過時間を返す"""
     return {"recording": _recording}
 
 
 def list_recordings() -> list[dict]:
-    """
-    uploads/ フォルダ内のWAVファイル一覧を返す（チャンクファイルは除外）。
-    """
     _ensure_uploads_dir()
-    # _partN.wav はチャンクファイルなので除外
     files = sorted(
         [f for f in UPLOADS_DIR.glob("*.wav") if "_part" not in f.name],
         key=os.path.getmtime,
@@ -251,20 +348,13 @@ def list_recordings() -> list[dict]:
 
 
 def delete_recording(filename: str) -> dict:
-    """
-    指定したWAVファイルを削除する。
-    """
     filepath = UPLOADS_DIR / filename
-
     if not filepath.resolve().is_relative_to(UPLOADS_DIR.resolve()):
         return {"status": "error", "message": "不正なファイルパスです"}
-
     if not filepath.exists():
         return {"status": "error", "message": "ファイルが見つかりません"}
-
     try:
         filepath.unlink()
-        print(f"[recorder] 削除: {filename}")
         return {"status": "deleted"}
     except Exception as e:
         return {"status": "error", "message": str(e)}

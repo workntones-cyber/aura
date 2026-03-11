@@ -16,9 +16,20 @@ async function loadSettings() {
     const res = await fetch('/api/settings');
     if (!res.ok) return;
     const data = await res.json();
+
+    // AIモードを反映
     selectMode(data.ai_mode || 'personal', false);
+
+    // APIキーを反映
     if (data.groq_api_key) {
       document.getElementById('apiKeyInput').value = data.groq_api_key;
+    }
+
+    // 録音ソースを反映
+    const recSource = data.recording_source || 'mic';
+    selectRecSource(recSource, false);
+    if (recSource === 'system') {
+      await loadDevices(data.recording_device_id || '');
     }
   } catch (e) {
     // 設定未保存の場合はデフォルト値のまま
@@ -67,8 +78,9 @@ async function saveSettings() {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      ai_mode: currentMode,
-      groq_api_key: apiKey,
+      ai_mode:          currentMode,
+      groq_api_key:     apiKey,
+      recording_source: currentRecSource,
     }),
   });
 
@@ -127,7 +139,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // ── 録音ソース切替 ───────────────────────────────
-let currentRecSource = 'mic';
+let currentRecSource = 'system';
 
 function selectRecSource(source, loadDev = true) {
   currentRecSource = source;
@@ -138,7 +150,6 @@ function selectRecSource(source, loadDev = true) {
   const area = document.getElementById('deviceSelectArea');
   if (source === 'system') {
     area.classList.add('visible');
-    if (loadDev) loadDevices('');
     // OS判定で案内表示
     const isMac = navigator.platform.toUpperCase().includes('MAC');
     document.getElementById('windowsNotice').style.display = isMac ? 'none' : 'block';
