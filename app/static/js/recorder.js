@@ -22,6 +22,7 @@ document.addEventListener('DOMContentLoaded', () => {
   checkApiKey();
   checkBlackHole();
   updateSettingsBadge();
+  checkModelReady();
 
   document.addEventListener('mousemove', e => {
     if (!isDragging || dragId === null) return;
@@ -130,18 +131,7 @@ async function runTranscribe(recordId) {
   step1.classList.remove('error'); step2.classList.remove('error');
   step1.classList.add('active');
 
-  // ビジネス用モード（faster-whisper）の場合、初回ダウンロードの注意書きを表示
-  const downloadNotice = document.getElementById('modelDownloadNotice');
-  if (downloadNotice) {
-    try {
-      const settingsRes = await fetch('/api/settings');
-      const settings    = await settingsRes.json();
-      if (settings.ai_mode === 'business') {
-        downloadNotice.classList.add('visible');
-        step1.querySelector('span').textContent = '文字起こしを準備中...';
-      }
-    } catch (e) {}
-  }
+
 
   let data;
   try {
@@ -497,4 +487,87 @@ async function updateSettingsBadge() {
     }
 
   } catch (e) {}
+}
+
+// ── モデル準備チェック（ビジネス用モード） ──────────
+let _modelReadyTimer = null;
+
+async function checkModelReady() {
+  try {
+    const settingsRes = await fetch('/api/settings');
+    const settings    = await settingsRes.json();
+    if (settings.ai_mode !== 'business') return; // 個人用モードは不要
+
+    const res  = await fetch('/api/model/status');
+    const data = await res.json();
+
+    if (data.status === 'ready') {
+      hideModelBanner();
+      return;
+    }
+
+    // ダウンロード中またはidle（まだ開始前）→ ロック
+    lockForModel(data.status);
+    _modelReadyTimer = setInterval(async () => {
+      try {
+        const r = await fetch('/api/model/status');
+        const d = await r.json();
+        if (d.status === 'ready') {
+          clearInterval(_modelReadyTimer);
+          _modelReadyTimer = null;
+          hideModelBanner();
+        } else if (d.status === 'error') {
+          clearInterval(_modelReadyTimer);
+          _modelReadyTimer = null;
+          showModelBanner(
+            `❌ AIモデルのダウンロードに失敗しました。設定画面で再度ビジネス用モードを保存してください。`,
+            'error'
+          );
+        }
+      } catch (e) {}
+    }, 3000);
+
+  } catch (e) {}
+}
+
+function lockForModel(status) {
+  const btn = document.getElementById('recordBtn');
+  if (btn) {
+    btn.disabled = true;
+    btn.style.opacity = '0.4';
+    btn.style.cursor  = 'not-allowed';
+  }
+  const msg = status === 'downloading'
+    ? '⏳ AIモデルをダウンロード中です（約1.5GB）。完了後に録音できます...'
+    : '⏳ AIモデルを準備中です。しばらくお待ちください...';
+  showModelBanner(msg, 'downloading');
+}
+
+function hideModelBanner() {
+  // バナーを非表示
+  const banner = document.getElementById('modelReadyBanner');
+  if (banner) banner.style.display = 'none';
+  // 録音ボタンを再有効化
+  const btn = document.getElementById('recordBtn');
+  if (btn) {
+    btn.disabled      = false;
+    btn.style.opacity = '';
+    btn.style.cursor  = '';
+  }
+  showToast('✅ AIモデルの準備が完了しました。録音を開始できます。');
+}
+
+function showModelBanner(msg, type) {
+  let banner = document.getElementById('modelReadyBanner');
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'modelReadyBanner';
+    // APIバナーの後に挿入
+    const ref = document.getElementById('blackholeBanner') || document.querySelector('main');
+    ref.insertAdjacentElement('afterend', banner);
+  }
+  banner.className  = 'api-warning-banner model-ready-banner model-ready-' + type;
+  banner.style.display = 'flex';
+  banner.innerHTML  = `<div class="api-warning-icon">${type === 'error' ? '❌' : '⏳'}</div>
+    <div class="api-warning-text">${msg}</div>`;
 }

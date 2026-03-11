@@ -219,7 +219,10 @@ def recordings_delete_all():
 #  音声ファイル配信 API
 # ══════════════════════════════════════════════════
 
-UPLOADS_DIR = Path(__file__).resolve().parent / "uploads"
+if getattr(sys, "frozen", False):
+    UPLOADS_DIR = Path(sys.executable).resolve().parent / "uploads"
+else:
+    UPLOADS_DIR = Path(__file__).resolve().parent / "uploads"
 
 @app.route("/api/audio/<filename>")
 def serve_audio(filename):
@@ -269,7 +272,14 @@ def get_devices():
 #  設定 API
 # ══════════════════════════════════════════════════
 
-ENV_PATH = Path(__file__).parent / ".env"
+# PyInstaller frozen 対応
+if getattr(sys, "frozen", False):
+    ENV_PATH = Path(sys.executable).resolve().parent / ".env"
+else:
+    ENV_PATH = Path(__file__).resolve().parent / ".env"
+print(f"[main] ENV_PATH: {ENV_PATH}")
+print(f"[main] ENV_PATH exists: {ENV_PATH.exists()}")
+print(f"[main] frozen: {getattr(sys, 'frozen', False)}")
 
 def _read_env() -> dict:
     """`.env` ファイルを読み込んで辞書で返す"""

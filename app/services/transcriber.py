@@ -14,7 +14,11 @@ from pathlib import Path
 from groq import Groq
 
 # ── 設定 ──────────────────────────────────────────
-UPLOADS_DIR        = Path(__file__).resolve().parent.parent.parent / "uploads"
+import sys as _sys
+if getattr(_sys, "frozen", False):
+    UPLOADS_DIR = Path(_sys.executable).resolve().parent / "uploads"
+else:
+    UPLOADS_DIR = Path(__file__).resolve().parent.parent.parent / "uploads"
 ENV_PATH           = Path(__file__).resolve().parent.parent.parent / ".env"
 WHISPER_MODEL      = "whisper-large-v3-turbo"   # 文字起こし用
 SUMMARY_MODEL      = "llama-3.3-70b-versatile"  # 要約用
