@@ -36,10 +36,7 @@
     <div class="api-warning-text">
       <strong>BlackHole がインストールされていません</strong><br>
       Mac でオンライン会議の音声を録音するには BlackHole が必要です。
-      <a href="https://existential.audio/blackhole/" target="_blank" class="api-warning-link">
-        BlackHole をインストール →
-      </a>
-      インストール後、Audio MIDI設定で「複数出力装置」を設定してください。
+      <a href="/settings" class="api-warning-link">設定画面でインストール手順を見る →</a>
     </div>
   </div>
 
@@ -50,6 +47,14 @@
     <div class="meta-divider"></div>
     <label>概要メモ</label>
     <textarea id="memoInput" class="meta-input" rows="2" placeholder="例：Q1の売上について議論"></textarea>
+    <div class="meta-divider"></div>
+    <!-- 現在の設定状態 -->
+    <div class="current-settings-bar" id="currentSettingsBar">
+      <a href="/settings" class="settings-badge-link" title="設定">⚙️</a>
+      <div class="settings-badges-row" id="settingsBadgesRow">
+        <!-- JS で動的生成 -->
+      </div>
+    </div>
   </div>
 
   <!-- 録音セクション -->

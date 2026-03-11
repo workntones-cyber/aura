@@ -696,3 +696,90 @@ main.narrow { max-width: 640px; }
 }
 
 .model-download-notice.visible { display: block; }
+
+/* ── Mac BlackHole ガイド ── */
+.mac-guide { margin-top: 4px; }
+
+.mac-guide-ok {
+  padding: 12px 16px; border-radius: 12px;
+  background: rgba(52,211,153,0.1); border: 1px solid rgba(52,211,153,0.3);
+  font-size: 13px; color: #6EE7B7;
+}
+
+.mac-guide-title {
+  font-size: 13px; font-weight: 700; color: var(--text);
+  margin-bottom: 16px; line-height: 1.6;
+}
+
+.mac-step {
+  display: flex; gap: 14px; margin-bottom: 16px; align-items: flex-start;
+}
+
+.mac-step-num {
+  min-width: 28px; height: 28px; border-radius: 50%;
+  background: var(--accent2); color: white;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700; margin-top: 2px;
+}
+
+.mac-step-title {
+  font-size: 13px; font-weight: 700; margin-bottom: 4px;
+}
+
+.mac-step-desc {
+  font-size: 12px; color: var(--muted); line-height: 1.7;
+}
+
+.mac-step-btn {
+  display: inline-block; margin-top: 8px;
+  padding: 8px 16px; border-radius: 8px;
+  background: var(--accent2); color: white;
+  font-size: 12px; font-weight: 700; text-decoration: none;
+  transition: opacity 0.2s;
+}
+
+.mac-step-btn:hover { opacity: 0.85; }
+
+/* ── 現在の設定状態バー ── */
+.current-settings-bar {
+  position: relative;
+  display: flex; flex-direction: column; gap: 10px;
+}
+
+.settings-badge-link {
+  position: absolute; top: 0; right: 0;
+  font-size: 14px; color: var(--muted); text-decoration: none;
+  opacity: 0.5; transition: opacity 0.2s;
+}
+.settings-badge-link:hover { opacity: 1; }
+
+.settings-badges-row {
+  display: flex; flex-direction: column; gap: 6px;
+}
+
+/* バッジ＋注釈を1行にまとめたグループ */
+.settings-badge-group {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.settings-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 10px; border-radius: 20px;
+  background: var(--surface); border: 1px solid var(--border);
+  font-size: 11px; color: var(--muted); font-weight: 500;
+  white-space: nowrap;
+}
+
+.settings-badge-system   { color: #60A5FA; border-color: rgba(96,165,250,0.3); background: rgba(96,165,250,0.08); }
+.settings-badge-business { color: #A78BFA; border-color: rgba(167,139,250,0.3); background: rgba(167,139,250,0.08); }
+
+.settings-notice-item {
+  display: flex; align-items: baseline; gap: 5px;
+  font-size: 11px; color: var(--muted); opacity: 0.8; line-height: 1.8;
+}
+
+.settings-notice-icon { min-width: 16px; text-align: center; }
+

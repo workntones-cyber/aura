@@ -21,6 +21,7 @@ document.addEventListener('DOMContentLoaded', () => {
   loadHistory();
   checkApiKey();
   checkBlackHole();
+  updateSettingsBadge();
 
   document.addEventListener('mousemove', e => {
     if (!isDragging || dragId === null) return;
@@ -456,4 +457,44 @@ function showToast(msg) {
 function escHtml(str) {
   if (!str) return '';
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// ── 現在の設定状態バッジ ─────────────────────────
+async function updateSettingsBadge() {
+  try {
+    const res      = await fetch('/api/settings');
+    const settings = await res.json();
+
+    const isSystem   = settings.recording_source === 'system';
+    const isBusiness = settings.ai_mode === 'business';
+
+    const rows = [
+      {
+        badgeClass: isSystem ? 'settings-badge settings-badge-system' : 'settings-badge',
+        badgeText:  isSystem ? '🖥️ システム音声' : '🎤 マイク入力',
+        noticeIcon: isSystem ? '🔊' : '⚠️',
+        noticeText: isSystem ? 'PCのすべての音声を録音します' : 'オンライン会議の音声は録音されません',
+      },
+      {
+        badgeClass: isBusiness ? 'settings-badge settings-badge-business' : 'settings-badge',
+        badgeText:  isBusiness ? '🏢 ビジネス用（faster-whisper）' : '⚡ 個人用（Groq API）',
+        noticeIcon: isBusiness ? '🔒' : '☁️',
+        noticeText: isBusiness ? '音声データはクラウドに送信されません' : '音声データはクラウドに送信されます',
+      },
+    ];
+
+    const rowEl = document.getElementById('settingsBadgesRow');
+    if (rowEl) {
+      rowEl.innerHTML = rows.map(r => `
+        <div class="settings-badge-group">
+          <span class="${r.badgeClass}">${r.badgeText}</span>
+          <div class="settings-notice-item">
+            <span class="settings-notice-icon">${r.noticeIcon}</span>
+            <span>${r.noticeText}</span>
+          </div>
+        </div>`
+      ).join('');
+    }
+
+  } catch (e) {}
 }

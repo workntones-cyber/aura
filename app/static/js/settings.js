@@ -150,10 +150,16 @@ function selectRecSource(source, loadDev = true) {
   const area = document.getElementById('deviceSelectArea');
   if (source === 'system') {
     area.classList.add('visible');
-    // OS判定で案内表示
-    const isMac = navigator.platform.toUpperCase().includes('MAC');
+    const isMac = navigator.platform.toUpperCase().includes('MAC') ||
+                  navigator.userAgent.includes('Mac');
+    // Windows
     document.getElementById('windowsNotice').style.display = isMac ? 'none' : 'block';
-    document.getElementById('macNotice').style.display     = isMac ? 'block' : 'none';
+    // Mac
+    const macGuide = document.getElementById('macGuide');
+    if (macGuide) {
+      macGuide.style.display = isMac ? 'block' : 'none';
+      if (isMac) checkBlackHoleInSettings();
+    }
   } else {
     area.classList.remove('visible');
   }
@@ -189,5 +195,29 @@ async function loadDevices(selectedId) {
     }
   } catch (e) {
     select.innerHTML = '<option value="">デバイスの取得に失敗しました</option>';
+  }
+}
+
+// ── Mac: 設定画面でのBlackHole検出チェック ──────
+async function checkBlackHoleInSettings() {
+  try {
+    const res     = await fetch('/api/devices');
+    const devices = await res.json();
+    const hasBlackHole = devices.some(d =>
+      d.name.toLowerCase().includes('blackhole')
+    );
+
+    const guideOk    = document.getElementById('macGuideOk');
+    const guideSteps = document.getElementById('macGuideSteps');
+
+    if (hasBlackHole) {
+      if (guideOk)    guideOk.style.display    = 'block';
+      if (guideSteps) guideSteps.style.display  = 'none';
+    } else {
+      if (guideOk)    guideOk.style.display    = 'none';
+      if (guideSteps) guideSteps.style.display  = 'block';
+    }
+  } catch (e) {
+    // 取得失敗時はステップガイドを表示
   }
 }
