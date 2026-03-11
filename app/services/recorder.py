@@ -11,7 +11,7 @@ import sounddevice as sd
 SAMPLE_RATE = 16000       # Hz（音声認識最適）
 CHANNELS = 1              # モノラル（文字起こしに最適）
 DTYPE = "int16"           # 16bit PCM
-UPLOADS_DIR = Path(__file__).parent.parent / "uploads"
+UPLOADS_DIR = Path(__file__).parent.parent.parent / "uploads"
 
 # ── 状態管理 ──────────────────────────────────────
 _recording = False
@@ -170,13 +170,11 @@ def delete_recording(filename: str) -> dict:
 動作テスト用コマンド
 
 uv run python -c "
-from services.recorder import start, stop, get_status
+from app.services.recorder import start, stop
 import time
-
-print(start())        # {'status': 'started'}
-print(get_status())   # {'recording': True}
-time.sleep(3)         # 3秒録音
-print(stop())         # {'status': 'stopped', 'filename': '...', 'duration': 3.0}
+print(start())
+time.sleep(3)
+print(stop())
 "
 
 """
