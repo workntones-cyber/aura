@@ -206,17 +206,105 @@ def _call_llama(client: Groq, transcript: str) -> str:
 
 
 # ── faster-whisper（ビジネス用） ───────────────────
+
+# モデルキャッシュ（再利用してメモリ節約）
+_whisper_model = None
+_whisper_model_name = None
+
+FASTER_WHISPER_MODEL = "medium"
+
+
+def _get_whisper_model():
+    """
+    faster-whisperモデルをロードして返す（キャッシュ済みなら再利用）。
+    初回はGPU/CPUを自動検出してダウンロードする。
+    """
+    global _whisper_model, _whisper_model_name
+
+    if _whisper_model is not None and _whisper_model_name == FASTER_WHISPER_MODEL:
+        return _whisper_model
+
+    from faster_whisper import WhisperModel
+
+    # GPU(CUDA)が使えるか確認
+    try:
+        import torch
+        if torch.cuda.is_available():
+            device    = "cuda"
+            compute   = "float16"
+            print(f"[transcriber] GPU検出: {torch.cuda.get_device_name(0)}")
+        else:
+            device    = "cpu"
+            compute   = "int8"
+            print("[transcriber] GPUなし: CPUで実行します（処理に時間がかかる場合があります）")
+    except ImportError:
+        device    = "cpu"
+        compute   = "int8"
+        print("[transcriber] torch未インストール: CPUで実行します")
+
+    print(f"[transcriber] Whisperモデルをロード中: {FASTER_WHISPER_MODEL} ({device})")
+    print("[transcriber] 初回はモデルのダウンロードが発生します（約1.5GB）")
+
+    _whisper_model      = WhisperModel(FASTER_WHISPER_MODEL, device=device, compute_type=compute)
+    _whisper_model_name = FASTER_WHISPER_MODEL
+
+    print(f"[transcriber] Whisperモデルのロード完了")
+    return _whisper_model
+
+
 def _transcribe_faster_whisper(wav_filename: str) -> dict:
     """
-    faster-whisper を使ったローカル文字起こし。
-    Phase 3後半で実装予定。
+    faster-whisper を使ったローカル文字起こし & LLaMAで要約。
+    GPU(CUDA)が使えれば自動でGPU処理、なければCPU処理にフォールバック。
     """
-    # TODO: Phase 3後半で実装
-    # from faster_whisper import WhisperModel
-    # model = WhisperModel("large-v3", device="auto")
-    # segments, _ = model.transcribe(str(UPLOADS_DIR / wav_filename))
-    # transcript = " ".join([seg.text for seg in segments])
-    return {
-        "status": "error",
-        "message": "ビジネス用モード（faster-whisper）は現在実装中です。設定画面で個人用モードに切り替えてください。",
-    }
+    wav_path = UPLOADS_DIR / wav_filename
+    if not wav_path.exists():
+        return {"status": "error", "message": f"音声ファイルが見つかりません: {wav_filename}"}
+
+    try:
+        model = _get_whisper_model()
+
+        # ── ① 文字起こし ──────────────────────────
+        print(f"[transcriber] faster-whisper 文字起こし開始: {wav_filename}")
+        segments, info = model.transcribe(
+            str(wav_path),
+            language="ja",
+            beam_size=5,
+            vad_filter=True,       # 無音区間をスキップして高速化
+            vad_parameters={"min_silence_duration_ms": 500},
+        )
+        transcript = " ".join([seg.text.strip() for seg in segments]).strip()
+        print(f"[transcriber] faster-whisper 文字起こし完了: {len(transcript)}文字 ({info.duration:.1f}秒)")
+
+        if not transcript:
+            return {"status": "error", "message": "文字起こし結果が空でした（無音または認識できませんでした）"}
+
+        # ── ② 要約（Groq LLaMA） ──────────────────
+        # ビジネス用でも要約はGroq LLaMAを使用
+        # （ローカルLLMは別途対応が必要なため）
+        env     = _read_env()
+        api_key = env.get("GROQ_API_KEY", "").strip()
+
+        if api_key:
+            from groq import Groq
+            client     = Groq(api_key=api_key)
+            ai_summary = _call_llama(client, transcript)
+            print(f"[transcriber] 要約完了: {len(ai_summary)}文字")
+        else:
+            ai_summary = "（要約にはGroq APIキーの設定が必要です）"
+            print("[transcriber] Groq APIキー未設定のため要約をスキップ")
+
+        return {
+            "status":     "done",
+            "transcript": transcript,
+            "ai_summary": ai_summary,
+        }
+
+    except ImportError:
+        return {
+            "status":  "error",
+            "message": "faster-whisperがインストールされていません。`uv add faster-whisper` を実行してください。",
+        }
+    except Exception as e:
+        print(f"[transcriber] faster-whisper エラー: {e}")
+        return {"status": "error", "message": f"faster-whisperエラー: {str(e)}"}
