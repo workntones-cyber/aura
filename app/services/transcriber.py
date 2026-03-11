@@ -7,6 +7,7 @@ AIモードに応じて以下を切り替える：
   - business  : faster-whisper（完全ローカル）※ Phase 3後半で実装
 """
 
+import sys
 import time
 from pathlib import Path
 

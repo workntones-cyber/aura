@@ -1,4 +1,5 @@
 import os
+import sys
 import wave
 import threading
 from datetime import datetime
@@ -8,12 +9,17 @@ import numpy as np
 import sounddevice as sd
 
 # ── 設定 ──────────────────────────────────────────
-SAMPLE_RATE  = 16000        # Hz（音声認識最適）
-CHANNELS     = 1            # モノラル（文字起こしに最適）
-DTYPE        = "int16"      # 16bit PCM
-CHUNK_MINUTES = 10          # 自動分割間隔（分）
+SAMPLE_RATE   = 16000        # Hz（音声認識最適）
+CHANNELS      = 1            # モノラル（文字起こしに最適）
+DTYPE         = "int16"      # 16bit PCM
+CHUNK_MINUTES = 10           # 自動分割間隔（分）
 CHUNK_FRAMES  = SAMPLE_RATE * 60 * CHUNK_MINUTES  # 1チャンクのフレーム数
-UPLOADS_DIR  = Path(__file__).resolve().parent.parent.parent / "uploads"
+
+# PyInstallerで固めた場合は実行ファイルと同じ場所に保存
+if getattr(sys, "frozen", False):
+    UPLOADS_DIR = Path(sys.executable).resolve().parent / "uploads"
+else:
+    UPLOADS_DIR = Path(__file__).resolve().parent.parent.parent / "uploads"
 
 # ── 状態管理 ──────────────────────────────────────
 _recording   = False

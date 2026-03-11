@@ -1,9 +1,14 @@
+import sys
 import sqlite3
 from datetime import datetime
 from pathlib import Path
 
 # ── データベースファイルのパス ──────────────────────
-DB_PATH = Path(__file__).parent / "aura.db"
+# PyInstallerで固めた場合は実行ファイルと同じ場所に保存
+if getattr(sys, "frozen", False):
+    DB_PATH = Path(sys.executable).resolve().parent / "aura.db"
+else:
+    DB_PATH = Path(__file__).resolve().parent / "aura.db"
 
 
 def get_connection() -> sqlite3.Connection:
@@ -155,17 +160,3 @@ def delete_recording(record_id: int) -> dict:
         conn.commit()
     print(f"[database] 削除: id={record_id}")
     return {"status": "deleted", "wav_file": record["wav_file"]}
-
-
-"""
-動作テスト用コマンド
-
-uv run python -c "
-from app.database import init_db, create_recording, get_all_recordings
-
-init_db()
-id = create_recording('aura_test.wav', title='テスト録音', memo='動作確認用')
-print(get_all_recordings())
-"
-
-"""

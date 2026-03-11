@@ -1,4 +1,7 @@
 import os
+import sys
+import threading
+import webbrowser
 from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request, send_from_directory
@@ -15,7 +18,23 @@ from app.database import (
 from app.services.recorder import delete_recording as delete_wav
 from app.services.recorder import get_status, list_recordings, start, stop
 
-app = Flask(__name__, template_folder="app/templates", static_folder="app/static")
+# ── PyInstaller対応：リソースパスの解決 ──────────────
+# --onefile で固めた場合、リソースは一時展開ディレクトリに置かれる
+# 通常実行時は main.py のある場所をベースにする
+if getattr(sys, "frozen", False):
+    # PyInstallerで固めた実行ファイルとして起動している
+    BASE_DIR = Path(sys.executable).resolve().parent
+    RESOURCE_DIR = Path(sys._MEIPASS)  # 一時展開ディレクトリ
+else:
+    # 通常のPython実行
+    BASE_DIR     = Path(__file__).resolve().parent
+    RESOURCE_DIR = BASE_DIR
+
+app = Flask(
+    __name__,
+    template_folder=str(RESOURCE_DIR / "app" / "templates"),
+    static_folder=str(RESOURCE_DIR / "app" / "static"),
+)
 
 # ── 起動時にDBを初期化 ────────────────────────────
 init_db()
@@ -282,5 +301,23 @@ def settings_save():
 #  起動
 # ══════════════════════════════════════════════════
 
+def _open_browser():
+    """Flaskの起動を待ってからブラウザを開く"""
+    import time
+    time.sleep(1.5)
+    webbrowser.open("http://127.0.0.1:5000")
+
+
 if __name__ == "__main__":
-    app.run(debug=True)
+    # PyInstallerで固めた場合はデバッグ無効・自動リロード無効
+    is_frozen = getattr(sys, "frozen", False)
+
+    if not is_frozen:
+        # 通常の開発時はデバッグモード
+        app.run(debug=True)
+    else:
+        # 配布用：ブラウザを別スレッドで起動してからFlaskを起動
+        print("AURA を起動しています...")
+        print("ブラウザが開かない場合は http://127.0.0.1:5000 にアクセスしてください")
+        threading.Thread(target=_open_browser, daemon=True).start()
+        app.run(host="127.0.0.1", port=5000, debug=False, use_reloader=False)

@@ -29,3 +29,13 @@ desktop.ini
 # エディタ設定
 .vscode/
 .idea/
+
+# PyInstallerビルド成果物
+dist/
+build/
+*.spec.bak
+
+# データベース（ユーザーデータ）
+*.db
+*.db-shm
+*.db-wal
