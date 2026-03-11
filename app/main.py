@@ -185,7 +185,7 @@ def recordings_delete(record_id: int):
 #  音声ファイル配信 API
 # ══════════════════════════════════════════════════
 
-UPLOADS_DIR = Path(__file__).parent / "uploads"
+UPLOADS_DIR = Path(__file__).resolve().parent / "uploads"
 
 @app.route("/api/audio/<filename>")
 def serve_audio(filename):
