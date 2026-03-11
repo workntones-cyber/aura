@@ -113,21 +113,19 @@ def transcribe():
     if not record:
         return jsonify({"status": "error", "message": "データが見つかりません"}), 404
 
-    # transcriber.py は次のステップで実装
-    # from app.services.transcriber import transcribe_and_summarize
-    # result = transcribe_and_summarize(record["wav_file"])
+    from app.services.transcriber import transcribe_and_summarize
+    result = transcribe_and_summarize(record["wav_file"])
 
-    # ── 暫定：ダミーレスポンス（transcriber.py実装後に差し替え）──
-    transcript = "（文字起こし結果がここに入ります）"
-    ai_summary = "（AI要約結果がここに入ります）"
+    if result["status"] == "error":
+        return jsonify(result), 500
 
     # DBに保存
-    update_transcript_and_summary(record_id, transcript, ai_summary)
+    update_transcript_and_summary(record_id, result["transcript"], result["ai_summary"])
 
     return jsonify({
         "status": "done",
-        "transcript": transcript,
-        "ai_summary": ai_summary,
+        "transcript": result["transcript"],
+        "ai_summary": result["ai_summary"],
     }), 200
 
 
