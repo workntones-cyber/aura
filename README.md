@@ -122,6 +122,52 @@ PCから出力されるすべての音声を録音します。オンライン会
 
 ## インストール手順
 
+## 📦 パッケージ版（.exe）を使う場合（一般ユーザー向け）
+
+Python や開発環境は不要です。以下の手順だけで使い始められます。
+
+1. `AURA.exe` をダウンロードして任意のフォルダに置く
+2. `AURA.exe` をダブルクリックして起動
+3. ブラウザが自動で開くので、設定画面でAPIキーを入力する
+
+> ⚠️ Norton などのセキュリティソフトが警告を出す場合があります。「セキュリティソフトの警告について」のセクションを参照してください。
+
+---
+
+## 🛠️ ソースから起動する場合（開発者向け）
+
+### 事前準備
+
+#### Python 3.11 以上のインストール
+
+[https://www.python.org/downloads/](https://www.python.org/downloads/) から最新版をダウンロードしてインストールします。
+
+> ⚠️ Windowsの場合：インストール時に「**Add Python to PATH**」にチェックを入れてください。
+
+インストール確認：
+```bash
+python --version
+```
+
+#### uv のインストール
+
+**Windows（PowerShell）：**
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+**Mac / Linux：**
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+インストール確認：
+```bash
+uv --version
+```
+
+---
+
 ### 1. リポジトリをクローン
 
 ```bash
@@ -155,7 +201,7 @@ uv run python main.py
 ```
 
 ブラウザで以下のURLを開いてください：
-- **Windows：** [http://127.0.0.1:5000](http://127.0.0.1:5000)
+- **Windows：** [http://127.0.0.1:5001](http://127.0.0.1:5001)
 - **Mac：** [http://127.0.0.1:5001](http://127.0.0.1:5001)
 
 ---
@@ -177,6 +223,30 @@ uv run python main.py
       ↓
 ⑥ 結果を確認・編集して保存
 ```
+
+### 録音画面
+
+![録音画面](docs/images/index.jpg)
+
+タイトルと概要メモを入力してから録音ボタンをタップします。現在の設定（録音ソース・AIモード）と注意事項が画面下部に表示されます。
+
+### 設定画面
+
+**個人用モード（Groq API）**
+
+![設定画面・個人用](docs/images/settings_personal.jpg)
+
+**ビジネス用モード（faster-whisper）**
+
+![設定画面・ビジネス用](docs/images/settings_business.jpg)
+
+ビジネス用を選択すると、`設定を保存` 後に自動でAIモデル（約1.5GB）のダウンロードが始まります。
+
+**システム音声モード（Windows）**
+
+![設定画面・システム音声](docs/images/settings_system.jpg)
+
+Windowsでは追加設定なしでオンライン会議の音声を録音できます。Macの場合はBlackHoleのインストールが必要です（詳細は「録音モード」セクションを参照）。
 
 ### 長時間録音について
 
