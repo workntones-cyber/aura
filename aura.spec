@@ -12,9 +12,18 @@
 # ══════════════════════════════════════════════════
 
 import sys
+import subprocess
 from pathlib import Path
 
 block_cipher = None
+
+# ビルド前に AURA.exe を自動終了
+try:
+    result = subprocess.run(["taskkill", "/F", "/IM", "AURA.exe"], capture_output=True)
+    if result.returncode == 0:
+        print(">>> AURA.exe を終了しました")
+except Exception:
+    pass
 
 # faster-whisper のアセットパスを動的に解決
 def _find_faster_whisper_assets():

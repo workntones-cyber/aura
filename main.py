@@ -44,6 +44,19 @@ init_db()
 #  ページルーティング
 # ══════════════════════════════════════════════════
 
+
+@app.route("/api/shutdown", methods=["POST"])
+def shutdown():
+    """AURAを終了する"""
+    import threading
+    def _shutdown():
+        import time, os, signal
+        time.sleep(0.3)  # レスポンスを返してから終了
+        print("[main] シャットダウン要求を受信しました")
+        os.kill(os.getpid(), signal.SIGTERM)
+    threading.Thread(target=_shutdown, daemon=True).start()
+    return jsonify({"status": "ok"}), 200
+
 @app.route("/favicon.ico")
 def favicon():
     return send_from_directory(

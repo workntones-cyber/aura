@@ -349,3 +349,18 @@ function checkAllStepsDone() {
     }, 800);
   }
 }
+
+// ── アプリ終了 ────────────────────────────────────
+async function shutdownApp() {
+  if (!confirm('AURAを終了しますか？')) return;
+  try {
+    await fetch('/api/shutdown', { method: 'POST' });
+  } catch (e) {
+    // サーバー終了でfetchが失敗するのは正常
+  }
+  window.close();
+  // window.closeが効かないブラウザ向けのフォールバック
+  setTimeout(() => {
+    document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:Arial;color:#888;font-size:18px;">AURAを終了しました。このタブを閉じてください。</div>';
+  }, 500);
+}
