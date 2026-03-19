@@ -322,8 +322,8 @@ async function loadHistory() {
             placeholder="追加指示（例：技術的な専門用語を優先して記載してください）" />
         </div>
         <div class="history-actions">
-          ${r.transcript_status !== 'done' ? `<button class="btn btn-retry" onclick="retryTranscribe(${r.id})">🔄 文字起こし</button>` : ''}
-          ${r.transcript_status === 'done' ? `<button class="btn btn-retry" onclick="retrySummary(${r.id})">🔄 再要約</button>` : ''}
+          <button class="btn btn-retry" onclick="retryTranscribe(${r.id})">🔄 文字起こし</button>
+          <button class="btn btn-retry" onclick="retrySummary(${r.id})">🔄 再要約</button>
           <button class="btn btn-save"   onclick="saveHistory(${r.id})">💾 保存</button>
           <button class="btn btn-delete" onclick="deleteHistory(${r.id})">🗑️ 削除</button>
         </div>

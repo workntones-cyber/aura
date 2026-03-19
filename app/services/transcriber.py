@@ -362,6 +362,53 @@ def _summarize_ollama(transcript: str, extra_prompt: str = "") -> str:
         data = json.loads(res.read().decode("utf-8"))
         return data.get("response", "").strip()
 
+
+def _filter_transcript(text: str) -> str:
+    """
+    文字起こし結果から不要な文字列を除去する。
+    - フィラー（あー、えーと、うーん等）
+    - 挨拶定型文（よろしくお願いします等）
+    - 短すぎる断片
+    """
+    import re
+
+    # フィラー・感嘆詞を除去
+    filler_pattern = re.compile(
+        r'\b(あー+|えー+|うー+|んー+|あの+|えーと+|そのー+|まあ+|ねえ+|ほら+|'
+        r'あ、|え、|う、|ん、|はい、はい|ええ、ええ)\b',
+        re.IGNORECASE
+    )
+    text = filler_pattern.sub('', text)
+
+    # 文単位で分割して処理
+    sentences = re.split(r'(?<=[。！？])', text)
+    filtered = []
+
+    # 除外する定型フレーズ
+    skip_phrases = [
+        'よろしくお願いします', 'よろしくお願いいたします',
+        'お疲れ様です', 'お疲れ様でした',
+        'ありがとうございます', 'ありがとうございました',
+        'おはようございます', 'こんにちは', 'こんばんは',
+        'お世話になります', 'お世話になっております',
+        'はじめまして', '失礼します', '失礼いたします',
+        'では以上です', '以上です', 'よろしいでしょうか',
+    ]
+
+    for sentence in sentences:
+        s = sentence.strip()
+        if not s:
+            continue
+        # 短すぎる（3文字以下）はスキップ
+        if len(s) <= 3:
+            continue
+        # 定型フレーズのみの文はスキップ
+        if any(s.replace('。', '').replace('、', '').strip() == phrase for phrase in skip_phrases):
+            continue
+        filtered.append(s)
+
+    return ' '.join(filtered).strip()
+
 def _transcribe_faster_whisper(wav_filename: str, extra_prompt: str = "") -> dict:
     """
     faster-whisper を使ったローカル文字起こし & LLaMAで要約。
@@ -390,8 +437,9 @@ def _transcribe_faster_whisper(wav_filename: str, extra_prompt: str = "") -> dic
             vad_filter=True,       # 無音区間をスキップして高速化
             vad_parameters={"min_silence_duration_ms": 500},
         )
-        transcript = " ".join([seg.text.strip() for seg in segments]).strip()
-        print(f"[transcriber] faster-whisper 文字起こし完了: {len(transcript)}文字 ({info.duration:.1f}秒)")
+        raw_transcript = " ".join([seg.text.strip() for seg in segments]).strip()
+        transcript = _filter_transcript(raw_transcript)
+        print(f"[transcriber] faster-whisper 文字起こし完了: {len(transcript)}文字 ({info.duration:.1f}秒) ※フィルタ前: {len(raw_transcript)}文字")
 
         if not transcript:
             return {"status": "error", "message": "文字起こし結果が空でした（無音または認識できませんでした）"}
