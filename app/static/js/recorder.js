@@ -23,6 +23,7 @@ document.addEventListener('DOMContentLoaded', () => {
   checkBlackHole();
   updateSettingsBadge();
   checkModelReady();
+  restoreInputs();
 
   document.addEventListener('mousemove', e => {
     if (!isDragging || dragId === null) return;
@@ -176,6 +177,8 @@ async function runTranscribe(recordId) {
 
   document.getElementById('titleInput').value = '';
   document.getElementById('memoInput').value  = '';
+  sessionStorage.removeItem('aura_title');
+  sessionStorage.removeItem('aura_memo');
 
   await loadHistory();
   showToast('🎉 完了しました！');
@@ -569,6 +572,27 @@ function showModelBanner(msg, type) {
   banner.style.display = 'flex';
   banner.innerHTML  = `<div class="api-warning-icon">${type === 'error' ? '❌' : '⏳'}</div>
     <div class="api-warning-text">${msg}</div>`;
+}
+
+// ── sessionStorage による入力保持 ────────────────
+function restoreInputs() {
+  const titleEl = document.getElementById('titleInput');
+  const memoEl  = document.getElementById('memoInput');
+  if (!titleEl || !memoEl) return;
+
+  // 保存済みの値を復元
+  const savedTitle = sessionStorage.getItem('aura_title');
+  const savedMemo  = sessionStorage.getItem('aura_memo');
+  if (savedTitle !== null) titleEl.value = savedTitle;
+  if (savedMemo  !== null) memoEl.value  = savedMemo;
+
+  // 入力のたびにsessionStorageに保存
+  titleEl.addEventListener('input', () => {
+    sessionStorage.setItem('aura_title', titleEl.value);
+  });
+  memoEl.addEventListener('input', () => {
+    sessionStorage.setItem('aura_memo', memoEl.value);
+  });
 }
 
 // ── アプリ終了 ────────────────────────────────────
