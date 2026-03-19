@@ -156,10 +156,15 @@ def transcribe():
 
     extra_prompt = data.get("extra_prompt", "").strip()
     from app.services.transcriber import transcribe_and_summarize
-    result = transcribe_and_summarize(record["wav_file"], extra_prompt)
+    result = transcribe_and_summarize(record["wav_file"], extra_prompt, record_id)
 
     if result["status"] == "error":
         return jsonify(result), 500
+
+    # クリーニング済みテキストをDBに保存（個人用モード）
+    if result.get("cleaned_transcript"):
+        from app.database import update_cleaned_transcript
+        update_cleaned_transcript(record_id, result["cleaned_transcript"])
 
     # DBに保存
     update_transcript_and_summary(record_id, result["transcript"], result["ai_summary"])
@@ -414,6 +419,45 @@ def ollama_status():
     except Exception:
         return jsonify({"status": "not_running"}), 200
 
+
+
+@app.route("/api/clean", methods=["POST"])
+def clean_only():
+    """文字起こし済みのレコードに対してクリーニングのみ再実行する"""
+    data      = request.get_json(silent=True) or {}
+    record_id = data.get("record_id")
+
+    if not record_id:
+        return jsonify({"status": "error", "message": "record_id が必要です"}), 400
+
+    record = get_recording(record_id)
+    if not record:
+        return jsonify({"status": "error", "message": "データが見つかりません"}), 404
+
+    if not record.get("transcript"):
+        return jsonify({"status": "error", "message": "文字起こしデータがありません"}), 400
+
+    try:
+        env = _read_env()
+        ai_mode = env.get("AI_MODE", "personal")
+
+        import app.services.transcriber as _tr
+        if ai_mode == "business":
+            cleaned = _tr._clean_transcript_ollama(record["transcript"])
+        else:
+            api_key = env.get("GROQ_API_KEY", "").strip()
+            if not api_key:
+                return jsonify({"status": "error", "message": "Groq APIキーが設定されていません"}), 400
+            from groq import Groq
+            client  = Groq(api_key=api_key)
+            cleaned = _tr._clean_transcript_groq(client, record["transcript"])
+
+        import app.database as _db
+        _db.update_cleaned_transcript(record_id, cleaned)
+        return jsonify({"status": "done", "cleaned_transcript": cleaned}), 200
+
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"クリーニングエラー: {str(e)}"}), 500
 
 @app.route("/api/summarize", methods=["POST"])
 def summarize_only():

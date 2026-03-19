@@ -42,7 +42,7 @@ def _read_env() -> dict:
 
 
 # ── メイン関数 ────────────────────────────────────
-def transcribe_and_summarize(wav_filename: str, extra_prompt: str = "") -> dict:
+def transcribe_and_summarize(wav_filename: str, extra_prompt: str = "", record_id: int = None) -> dict:
     """
     WAVファイルを文字起こし & AI要約する。
 
@@ -57,7 +57,7 @@ def transcribe_and_summarize(wav_filename: str, extra_prompt: str = "") -> dict:
     ai_mode = env.get("AI_MODE", "personal")
 
     if ai_mode == "business":
-        return _transcribe_faster_whisper(wav_filename, extra_prompt)
+        return _transcribe_faster_whisper(wav_filename, extra_prompt, record_id)
     else:
         return _transcribe_groq(wav_filename, env)
 
@@ -80,18 +80,25 @@ def _transcribe_groq(wav_filename: str, env: dict) -> dict:
 
         # ── ① 文字起こし（Whisper） ───────────────
         print(f"[transcriber] 文字起こし開始: {wav_filename}")
-        transcript = _call_whisper(client, wav_path)
-        print(f"[transcriber] 文字起こし完了: {len(transcript)}文字")
+        raw_transcript = _call_whisper(client, wav_path)
+        print(f"[transcriber] 文字起こし完了: {len(raw_transcript)}文字")
 
-        # ── ② 要約（LLaMA） ──────────────────────
+        # ── ② 不要文字列除去（Groq LLaMA） ─────────
+        print(f"[transcriber] 不要文字列除去開始")
+        transcript = _clean_transcript_groq(client, raw_transcript)
+        # record_idはtranscribe_and_summarize経由では個人用に未渡しのため
+        # main.pyのtranscribeルートで保存する
+
+        # ── ③ 要約（Groq LLaMA） ─────────────────
         print(f"[transcriber] 要約開始")
         ai_summary = _call_llama(client, transcript)
         print(f"[transcriber] 要約完了: {len(ai_summary)}文字")
 
         return {
-            "status": "done",
-            "transcript": transcript,
-            "ai_summary": ai_summary,
+            "status":             "done",
+            "transcript":         raw_transcript,
+            "cleaned_transcript": transcript,
+            "ai_summary":         ai_summary,
         }
 
     except Exception as e:
@@ -185,6 +192,54 @@ def _split_wav(wav_path: Path, max_bytes: int) -> list[Path]:
 
 
 # ── LLaMA 要約（リトライ付き） ────────────────────
+
+
+def _call_llama_prompt(client, prompt: str) -> str:
+    """Groq LLaMAにプロンプトを直接渡して結果を返す"""
+    for attempt in range(1, RETRY_COUNT + 1):
+        try:
+            res = client.chat.completions.create(
+                model=SUMMARY_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=8192,
+            )
+            return res.choices[0].message.content.strip()
+        except Exception as e:
+            if "429" in str(e) and attempt < RETRY_COUNT:
+                print(f"[transcriber] 429 レート制限 - {RETRY_WAIT}秒後にリトライ ({attempt}/{RETRY_COUNT})")
+                time.sleep(RETRY_WAIT)
+            else:
+                raise
+    return ""
+
+def _clean_transcript_groq(client, raw_transcript: str) -> str:
+    """
+    Groq LLaMAを使って文字起こしから不要文字列を除去する（個人用モード）。
+    """
+    prompt = (
+        "以下は会議の音声を文字起こしした生テキストです。\n"
+        "以下の種類の文字列を除去して、会議の本質的な内容だけを残してください。\n\n"
+        "【除去する文字列の種類】\n"
+        "・挨拶（お世話になります、よろしくお願いします、ありがとうございます等）\n"
+        "・相槌・短い返答（はい、そうですね、なるほど、とんでもないです等）\n"
+        "・フィラー（あー、えーと、うーん、まあ等）\n"
+        "・謝罪の定型文（すみません、失礼します等）単独のもの\n"
+        "・会議の開始・終了の定型文（では始めます、以上です等）\n\n"
+        "【残す文字列】\n"
+        "・議題・提案・質問・回答・意見・決定事項\n"
+        "・具体的な数字・固有名詞・日付を含む発言\n"
+        "・状況説明・背景説明\n\n"
+        "除去後のテキストのみ出力してください（説明文・前置きは不要）。\n\n"
+        f"【文字起こし】\n{raw_transcript}"
+    )
+    try:
+        cleaned = _call_llama_prompt(client, prompt)
+        print(f"[transcriber] Groq クリーニング完了: {len(raw_transcript)}文字 → {len(cleaned)}文字")
+        return cleaned if cleaned else raw_transcript
+    except Exception as e:
+        print(f"[transcriber] Groq クリーニングエラー（元テキストを使用）: {e}")
+        return raw_transcript
+
 def _call_llama(client: Groq, transcript: str) -> str:
     prompt = (
         "以下の文字起こし内容を要約してください。\n\n"
@@ -310,6 +365,55 @@ def _get_ollama_model() -> str:
     """使用するOllamaモデルを.envから取得（未設定時はllama3.1:8b）"""
     return _read_env().get("OLLAMA_MODEL", "llama3.1:8b")
 
+
+def _clean_transcript_ollama(raw_transcript: str) -> str:
+    """
+    Ollamaを使って文字起こしから不要文字列を除去する。
+    挨拶・相槌・フィラー・定型文を削除し本質的な内容のみ残す。
+    """
+    import urllib.request
+    import json
+
+    prompt = (
+        "以下は会議の音声を文字起こしした生テキストです。\n"
+        "以下の種類の文字列を除去して、会議の本質的な内容だけを残してください。\n\n"
+        "【除去する文字列の種類】\n"
+        "・挨拶（お世話になります、よろしくお願いします、ありがとうございます等）\n"
+        "・相槌・短い返答（はい、そうですね、なるほど、とんでもないです等）\n"
+        "・フィラー（あー、えーと、うーん、まあ等）\n"
+        "・謝罪の定型文（すみません、失礼します等）単独のもの\n"
+        "・会議の開始・終了の定型文（では始めます、以上です等）\n\n"
+        "【残す文字列】\n"
+        "・議題・提案・質問・回答・意見・決定事項\n"
+        "・具体的な数字・固有名詞・日付を含む発言\n"
+        "・状況説明・背景説明\n\n"
+        "除去後のテキストのみ出力してください（説明文・前置きは不要）。\n\n"
+        f"【文字起こし】\n{raw_transcript}"
+    )
+
+    payload = json.dumps({
+        "model":  _get_ollama_model(),
+        "prompt": prompt,
+        "stream": False,
+    }).encode("utf-8")
+
+    req = urllib.request.Request(
+        "http://127.0.0.1:11434/api/generate",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=None) as res:
+            data = json.loads(res.read().decode("utf-8"))
+            cleaned = data.get("response", "").strip()
+            print(f"[transcriber] Ollama クリーニング完了: {len(raw_transcript)}文字 → {len(cleaned)}文字")
+            return cleaned if cleaned else raw_transcript
+    except Exception as e:
+        print(f"[transcriber] Ollama クリーニングエラー（元テキストを使用）: {e}")
+        return raw_transcript  # 失敗時は元テキストをそのまま返す
+
 def _summarize_ollama(transcript: str, extra_prompt: str = "") -> str:
     """
     Ollamaを使ってローカルで要約する。
@@ -385,8 +489,7 @@ def _filter_transcript(text: str) -> str:
     text = re.sub(r'  +', ' ', text).strip()
 
     # 文単位で分割して処理（句点・感嘆符・疑問符で区切る）
-    sentences = re.split(r'(?<=[。！？
-])', text)
+    sentences = re.split(r'(?<=[。！？])', text)
     filtered = []
 
     # 除外する定型フレーズ（部分一致）
@@ -402,6 +505,12 @@ def _filter_transcript(text: str) -> str:
         'それでは始めます', 'それでははじめます', 'では始めましょう',
         'では終わります', 'では以上で終わります',
         'お願いします', 'お願いいたします',
+        'とんでもないです', 'とんでもございません',
+        '問題ございません', '問題ありません', '大丈夫です',
+        'すいません', 'すみません', '申し訳ございません', '申し訳ありません',
+        'では、すいません', 'では、すみません',
+        'かしこまりました', '承知しました', '承知いたしました',
+        'そうですね', 'なるほどですね', 'おっしゃる通りです',
     ]
 
     # 相槌のみの文パターン
@@ -431,7 +540,7 @@ def _filter_transcript(text: str) -> str:
 
     return ' '.join(filtered).strip()
 
-def _transcribe_faster_whisper(wav_filename: str, extra_prompt: str = "") -> dict:
+def _transcribe_faster_whisper(wav_filename: str, extra_prompt: str = "", record_id: int = None) -> dict:
     """
     faster-whisper を使ったローカル文字起こし & LLaMAで要約。
     GPU(CUDA)が使えれば自動でGPU処理、なければCPU処理にフォールバック。
@@ -450,6 +559,8 @@ def _transcribe_faster_whisper(wav_filename: str, extra_prompt: str = "") -> dic
             "これは会議・打ち合わせの録音です。"
             "複数の参加者による質疑応答、意見交換、議論が含まれています。"
             "専門用語・固有名詞・数字を正確に文字起こしてください。"
+            "よく使われる表現：お世話になります、よろしくお願いします、"
+            "ありがとうございます、失礼いたします。"
         )
         segments, info = model.transcribe(
             str(wav_path),
@@ -466,7 +577,18 @@ def _transcribe_faster_whisper(wav_filename: str, extra_prompt: str = "") -> dic
         if not transcript:
             return {"status": "error", "message": "文字起こし結果が空でした（無音または認識できませんでした）"}
 
-        # ── ② 要約（Ollama ローカル） ─────────────
+        # ── ② 不要文字列除去（Ollama） ────────────
+        print("[transcriber] Ollama で不要文字列除去開始")
+        cleaned = _clean_transcript_ollama(transcript)
+        if record_id:
+            try:
+                from app.database import update_cleaned_transcript
+                update_cleaned_transcript(record_id, cleaned)
+            except Exception as e:
+                print(f"[transcriber] クリーニング保存エラー: {e}")
+        transcript = cleaned
+
+        # ── ③ 要約（Ollama ローカル） ─────────────
         print("[transcriber] Ollama で要約開始（完全ローカル処理）")
         try:
             ai_summary = _summarize_ollama(transcript, extra_prompt)

@@ -68,6 +68,16 @@ a = Analysis(
         'sqlite3',
         # 設定
         'dotenv',
+        # アプリモジュール（PyInstallerが自動検出できない場合のため明示）
+        'app',
+        'app.database',
+        'app.services',
+        'app.services.transcriber',
+        'app.services.recorder',
+        # faster-whisper
+        'faster_whisper',
+        # Ollama通信
+        'urllib.request',
     ],
     hookspath=[],
     hooksconfig={},

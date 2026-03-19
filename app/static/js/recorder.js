@@ -304,28 +304,34 @@ async function loadHistory() {
           </div>
         </div>
 
-        <!-- 文字起こし / 要約 タブ -->
-        ${(r.transcript || r.ai_summary) ? `
+        <!-- 文字起こし / クリーニング / 要約 タブ -->
+        ${(r.transcript || r.cleaned_transcript || r.ai_summary) ? `
           <div class="content-tabs">
             ${r.transcript ? `<div class="content-tab active" id="tab-tr-${r.id}" onclick="showTab(${r.id},'transcript')">📝 文字起こし</div>` : ''}
-            ${r.ai_summary ? `<div class="content-tab ${!r.transcript ? 'active' : ''}" id="tab-su-${r.id}" onclick="showTab(${r.id},'summary')">✨ AI要約</div>` : ''}
+            ${r.cleaned_transcript ? `<div class="content-tab" id="tab-cl-${r.id}" onclick="showTab(${r.id},'cleaned')">🧹 クリーニング済み</div>` : ''}
+            ${r.ai_summary ? `<div class="content-tab" id="tab-su-${r.id}" onclick="showTab(${r.id},'summary')">✨ AI要約</div>` : ''}
           </div>
           ${r.transcript ? `
             <div class="content-panel active" id="panel-transcript-${r.id}">
               <div class="history-content">${escHtml(r.transcript)}</div>
             </div>` : ''}
+          ${r.cleaned_transcript ? `
+            <div class="content-panel" id="panel-cleaned-${r.id}">
+              <div class="history-content">${escHtml(r.cleaned_transcript)}</div>
+            </div>` : ''}
           ${r.ai_summary ? `
-            <div class="content-panel ${!r.transcript ? 'active' : ''}" id="panel-summary-${r.id}">
+            <div class="content-panel" id="panel-summary-${r.id}">
               <div class="history-content">${escHtml(r.ai_summary)}</div>
             </div>` : ''}
         ` : ''}
 
         <div class="extra-prompt-row">
           <input class="extra-prompt-input" id="extra-prompt-${r.id}"
-            placeholder="追加指示（例：技術的な専門用語を優先して記載してください）" />
+            placeholder="🔄 再要約への追加指示（例：技術的な専門用語を優先して記載してください）" />
         </div>
         <div class="history-actions">
           <button class="btn btn-retry btn-retry-transcript" onclick="retryTranscribe(${r.id})">🔄 文字起こし</button>
+          <button class="btn btn-retry btn-retry-clean" onclick="retryClean(${r.id})">🧹 再クリーニング</button>
           <button class="btn btn-retry btn-retry-summary" onclick="retrySummary(${r.id})">🔄 再要約</button>
           <button class="btn btn-save"   onclick="saveHistory(${r.id})">💾 保存</button>
           <button class="btn btn-delete" onclick="deleteHistory(${r.id})">🗑️ 削除</button>
@@ -340,8 +346,8 @@ function toggleHistory(id) {
 }
 
 function showTab(id, type) {
-  ['transcript', 'summary'].forEach(t => {
-    const tabId = t === 'transcript' ? `tab-tr-${id}` : `tab-su-${id}`;
+  ['transcript', 'cleaned', 'summary'].forEach(t => {
+    const tabId = t === 'transcript' ? `tab-tr-${id}` : t === 'cleaned' ? `tab-cl-${id}` : `tab-su-${id}`;
     const tab   = document.getElementById(tabId);
     const panel = document.getElementById(`panel-${t}-${id}`);
     if (tab)   tab.classList.toggle('active',   t === type);
@@ -608,6 +614,29 @@ function restoreInputs() {
 }
 
 // ── 文字起こし・要約の再実行 ─────────────────────
+async function retryClean(recordId) {
+  if (!confirm('クリーニングを再実行しますか？')) return;
+  setRetryState(recordId, 'cleaning');
+  try {
+    const res  = await fetch('/api/clean', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ record_id: recordId }),
+    });
+    const data = await res.json();
+    if (data.status === 'done') {
+      showToast('✅ クリーニングが完了しました');
+      await loadHistory();
+    } else {
+      setRetryState(recordId, 'idle');
+      showToast('❌ 失敗: ' + (data.message || 'エラーが発生しました'));
+    }
+  } catch (e) {
+    setRetryState(recordId, 'idle');
+    showToast('❌ ネットワークエラーが発生しました');
+  }
+}
+
 async function retryTranscribe(recordId) {
   if (!confirm('文字起こしと要約を再実行しますか？')) return;
   // 文字起こし中: 文字起こしボタン→処理中、再要約ボタン→非活性
@@ -659,40 +688,45 @@ async function retrySummary(recordId) {
 }
 
 function setRetryState(recordId, state) {
-  // state: 'idle' | 'transcribing' | 'summarizing'
+  // state: 'idle' | 'transcribing' | 'cleaning' | 'summarizing'
   const item = document.getElementById(`history-${recordId}`);
   if (!item) return;
   const transcribeBtn = item.querySelector('.btn-retry-transcript');
+  const cleanBtn      = item.querySelector('.btn-retry-clean');
   const summaryBtn    = item.querySelector('.btn-retry-summary');
   if (!transcribeBtn || !summaryBtn) return;
 
+  // まず全ボタンをリセット
+  [transcribeBtn, cleanBtn, summaryBtn].forEach(btn => {
+    if (!btn) return;
+    btn.disabled      = false;
+    btn.style.opacity = '';
+  });
+  transcribeBtn.textContent = '🔄 文字起こし';
+  if (cleanBtn) cleanBtn.textContent = '🧹 再クリーニング';
+  summaryBtn.textContent    = '🔄 再要約';
+
   switch (state) {
     case 'transcribing':
-      // 文字起こし中：文字起こしボタン→処理中表示、再要約ボタン→非活性
       transcribeBtn.disabled    = true;
       transcribeBtn.textContent = '⏳ 文字起こし中...';
-      transcribeBtn.style.opacity = '1';
+      if (cleanBtn) { cleanBtn.disabled = true; cleanBtn.style.opacity = '0.3'; }
       summaryBtn.disabled       = true;
-      summaryBtn.textContent    = '🔄 再要約';
       summaryBtn.style.opacity  = '0.3';
       break;
-    case 'summarizing':
-      // 要約中：文字起こしボタン→非活性、再要約ボタン→処理中表示
-      transcribeBtn.disabled    = true;
-      transcribeBtn.textContent = '🔄 文字起こし';
+    case 'cleaning':
+      transcribeBtn.disabled      = true;
       transcribeBtn.style.opacity = '0.3';
-      summaryBtn.disabled       = true;
-      summaryBtn.textContent    = '⏳ 要約中...';
-      summaryBtn.style.opacity  = '1';
+      if (cleanBtn) { cleanBtn.disabled = true; cleanBtn.textContent = '⏳ クリーニング中...'; }
+      summaryBtn.disabled         = true;
+      summaryBtn.style.opacity    = '0.3';
       break;
-    case 'idle':
-    default:
-      transcribeBtn.disabled    = false;
-      transcribeBtn.textContent = '🔄 文字起こし';
-      transcribeBtn.style.opacity = '';
-      summaryBtn.disabled       = false;
-      summaryBtn.textContent    = '🔄 再要約';
-      summaryBtn.style.opacity  = '';
+    case 'summarizing':
+      transcribeBtn.disabled      = true;
+      transcribeBtn.style.opacity = '0.3';
+      if (cleanBtn) { cleanBtn.disabled = true; cleanBtn.style.opacity = '0.3'; }
+      summaryBtn.disabled         = true;
+      summaryBtn.textContent      = '⏳ 要約中...';
       break;
   }
 }

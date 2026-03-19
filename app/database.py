@@ -34,6 +34,8 @@ def init_db() -> None:
                 ai_summary          TEXT    NOT NULL DEFAULT '',
                 wav_file            TEXT    NOT NULL DEFAULT '',
                 transcript_status   TEXT    NOT NULL DEFAULT 'pending',
+                cleaned_transcript  TEXT    NOT NULL DEFAULT '',
+                cleaning_status     TEXT    NOT NULL DEFAULT 'pending',
                 summary_status      TEXT    NOT NULL DEFAULT 'pending',
                 created_at          TEXT    NOT NULL,
                 updated_at          TEXT    NOT NULL
@@ -41,8 +43,10 @@ def init_db() -> None:
         """)
         # 既存DBへのマイグレーション（カラムがなければ追加）
         for col, default in [
-            ("transcript_status", "'pending'"),
-            ("summary_status",    "'pending'"),
+            ("transcript_status",  "'pending'"),
+            ("cleaned_transcript", "''"),
+            ("cleaning_status",    "'pending'"),
+            ("summary_status",     "'pending'"),
         ]:
             try:
                 conn.execute(f"ALTER TABLE recordings ADD COLUMN {col} TEXT NOT NULL DEFAULT {default}")
@@ -54,6 +58,11 @@ def init_db() -> None:
             UPDATE recordings
             SET transcript_status = 'done'
             WHERE transcript != '' AND transcript_status = 'pending'
+        """)
+        conn.execute("""
+            UPDATE recordings
+            SET cleaning_status = 'done', cleaned_transcript = transcript
+            WHERE transcript != '' AND cleaning_status = 'pending'
         """)
         # 古いスキップメッセージをクリア
         conn.execute("""
@@ -87,8 +96,8 @@ def create_recording(
     with get_connection() as conn:
         cursor = conn.execute(
             """
-            INSERT INTO recordings (title, memo, transcript, ai_summary, wav_file, transcript_status, summary_status, created_at, updated_at)
-            VALUES (?, ?, '', '', ?, 'pending', 'pending', ?, ?)
+            INSERT INTO recordings (title, memo, transcript, ai_summary, wav_file, transcript_status, cleaning_status, summary_status, created_at, updated_at)
+            VALUES (?, ?, '', '', ?, 'pending', 'pending', 'pending', ?, ?)
             """,
             (title, memo, wav_file, now, now),
         )
@@ -149,6 +158,23 @@ def update_transcript_and_summary(
         conn.commit()
     print(f"[database] 文字起こし・要約を保存: id={record_id} (transcript:{t_status}, summary:{s_status})")
 
+
+
+def update_cleaned_transcript(record_id: int, cleaned_transcript: str) -> None:
+    """クリーニング済みテキストを保存する"""
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    status = "done" if cleaned_transcript else "error"
+    with get_connection() as conn:
+        conn.execute(
+            """
+            UPDATE recordings
+            SET cleaned_transcript = ?, cleaning_status = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (cleaned_transcript, status, now, record_id),
+        )
+        conn.commit()
+    print(f"[database] クリーニング結果を保存: id={record_id} (status:{status})")
 
 def update_title_and_memo(
     record_id: int,
