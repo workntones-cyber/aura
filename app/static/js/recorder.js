@@ -239,6 +239,9 @@ async function checkBlackHole() {
 
 // ── 過去データ一覧 ────────────────────────────────
 async function loadHistory() {
+  // 現在開いているアコーディオンのIDを記憶
+  const openIds = [...document.querySelectorAll('.history-item.open')]
+    .map(el => el.id.replace('history-', ''));
   const res  = await fetch('/api/recordings');
   const list = await res.json();
   const container = document.getElementById('historyList');
@@ -322,8 +325,8 @@ async function loadHistory() {
             placeholder="追加指示（例：技術的な専門用語を優先して記載してください）" />
         </div>
         <div class="history-actions">
-          <button class="btn btn-retry" onclick="retryTranscribe(${r.id})">🔄 文字起こし</button>
-          <button class="btn btn-retry" onclick="retrySummary(${r.id})">🔄 再要約</button>
+          <button class="btn btn-retry btn-retry-transcript" onclick="retryTranscribe(${r.id})">🔄 文字起こし</button>
+          <button class="btn btn-retry btn-retry-summary" onclick="retrySummary(${r.id})">🔄 再要約</button>
           <button class="btn btn-save"   onclick="saveHistory(${r.id})">💾 保存</button>
           <button class="btn btn-delete" onclick="deleteHistory(${r.id})">🗑️ 削除</button>
         </div>
@@ -607,7 +610,8 @@ function restoreInputs() {
 // ── 文字起こし・要約の再実行 ─────────────────────
 async function retryTranscribe(recordId) {
   if (!confirm('文字起こしと要約を再実行しますか？')) return;
-  setRetryLoading(recordId, '文字起こし', true);
+  // 文字起こし中: 文字起こしボタン→処理中、再要約ボタン→非活性
+  setRetryState(recordId, 'transcribing');
   try {
     const res  = await fetch('/api/transcribe', {
       method: 'POST',
@@ -619,11 +623,11 @@ async function retryTranscribe(recordId) {
       showToast('✅ 文字起こし・要約が完了しました');
       await loadHistory();
     } else {
-      setRetryLoading(recordId, '文字起こし', false);
+      setRetryState(recordId, 'idle');
       showToast('❌ 失敗: ' + (data.message || 'エラーが発生しました'));
     }
   } catch (e) {
-    setRetryLoading(recordId, '文字起こし', false);
+    setRetryState(recordId, 'idle');
     showToast('❌ ネットワークエラーが発生しました');
   }
 }
@@ -632,7 +636,8 @@ async function retrySummary(recordId) {
   if (!confirm('要約を再実行しますか？')) return;
   const extraPromptEl = document.getElementById(`extra-prompt-${recordId}`);
   const extraPrompt   = extraPromptEl ? extraPromptEl.value.trim() : '';
-  setRetryLoading(recordId, '要約', true);
+  // 要約中: 文字起こしボタン→非活性、再要約ボタン→処理中
+  setRetryState(recordId, 'summarizing');
   try {
     const res  = await fetch('/api/summarize', {
       method: 'POST',
@@ -644,33 +649,52 @@ async function retrySummary(recordId) {
       showToast('✅ 要約が完了しました');
       await loadHistory();
     } else {
-      setRetryLoading(recordId, '要約', false);
+      setRetryState(recordId, 'idle');
       showToast('❌ 失敗: ' + (data.message || 'エラーが発生しました'));
     }
   } catch (e) {
-    setRetryLoading(recordId, '要約', false);
+    setRetryState(recordId, 'idle');
     showToast('❌ ネットワークエラーが発生しました');
   }
 }
 
-function setRetryLoading(recordId, label, isLoading) {
-  // ボタンをローディング状態に切り替え
+function setRetryState(recordId, state) {
+  // state: 'idle' | 'transcribing' | 'summarizing'
   const item = document.getElementById(`history-${recordId}`);
   if (!item) return;
-  const btns = item.querySelectorAll('.btn-retry');
-  btns.forEach(btn => {
-    if (isLoading) {
-      btn.disabled = true;
-      btn.textContent = `⏳ ${label}中...`;
-      btn.style.opacity = '0.6';
-      btn.style.cursor  = 'not-allowed';
-    } else {
-      btn.disabled = false;
-      btn.textContent = `🔄 ${label}`;
-      btn.style.opacity = '';
-      btn.style.cursor  = '';
-    }
-  });
+  const transcribeBtn = item.querySelector('.btn-retry-transcript');
+  const summaryBtn    = item.querySelector('.btn-retry-summary');
+  if (!transcribeBtn || !summaryBtn) return;
+
+  switch (state) {
+    case 'transcribing':
+      // 文字起こし中：文字起こしボタン→処理中表示、再要約ボタン→非活性
+      transcribeBtn.disabled    = true;
+      transcribeBtn.textContent = '⏳ 文字起こし中...';
+      transcribeBtn.style.opacity = '1';
+      summaryBtn.disabled       = true;
+      summaryBtn.textContent    = '🔄 再要約';
+      summaryBtn.style.opacity  = '0.3';
+      break;
+    case 'summarizing':
+      // 要約中：文字起こしボタン→非活性、再要約ボタン→処理中表示
+      transcribeBtn.disabled    = true;
+      transcribeBtn.textContent = '🔄 文字起こし';
+      transcribeBtn.style.opacity = '0.3';
+      summaryBtn.disabled       = true;
+      summaryBtn.textContent    = '⏳ 要約中...';
+      summaryBtn.style.opacity  = '1';
+      break;
+    case 'idle':
+    default:
+      transcribeBtn.disabled    = false;
+      transcribeBtn.textContent = '🔄 文字起こし';
+      transcribeBtn.style.opacity = '';
+      summaryBtn.disabled       = false;
+      summaryBtn.textContent    = '🔄 再要約';
+      summaryBtn.style.opacity  = '';
+      break;
+  }
 }
 
 // ── Ollama起動チェック（ビジネス用モード） ──────────
