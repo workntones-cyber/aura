@@ -12,7 +12,7 @@
 <body>
 
 <nav>
-  <span class="nav-logo"><img src="/static/aura_icon_256.png" style="width:24px;height:24px;vertical-align:middle;margin-right:8px;border-radius:4px;">AURA</span>
+  <span class="nav-logo">AURA</span>
   <div class="nav-links">
     <a href="/" class="nav-link {% if active_page == 'index' %}active{% endif %}">🎙️ 録音</a>
     <a href="/settings" class="nav-link {% if active_page == 'settings' %}active{% endif %}">⚙️ 設定</a>
@@ -99,14 +99,26 @@
 
   <!-- 結果表示 -->
   <div class="result-section" id="resultSection">
-    <div class="result-card">
+    <div class="result-tabs">
+      <button class="result-tab active" id="tab-transcript" onclick="switchResultTab('transcript')">📝 文字起こし</button>
+      <button class="result-tab" id="tab-cleaned" onclick="switchResultTab('cleaned')">🧹 クリーニング済み</button>
+      <button class="result-tab" id="tab-summary" onclick="switchResultTab('summary')">✨ AI要約</button>
+    </div>
+    <div class="result-card" id="panel-transcript">
       <div class="result-card-header">
         <div class="result-card-title">📝 文字起こし</div>
         <button class="export-btn" onclick="copyText('transcriptBody')">コピー</button>
       </div>
       <div class="result-card-body" id="transcriptBody"></div>
     </div>
-    <div class="result-card">
+    <div class="result-card" id="panel-cleaned" style="display:none;">
+      <div class="result-card-header">
+        <div class="result-card-title">🧹 クリーニング済み</div>
+        <button class="export-btn" onclick="copyText('cleanedBody')">コピー</button>
+      </div>
+      <div class="result-card-body" id="cleanedBody"></div>
+    </div>
+    <div class="result-card" id="panel-summary" style="display:none;">
       <div class="result-card-header">
         <div class="result-card-title">✨ AI要約</div>
         <button class="export-btn" onclick="exportText()">保存</button>

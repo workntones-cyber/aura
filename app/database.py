@@ -108,16 +108,22 @@ def create_recording(
 
 
 # ── 読み取り ──────────────────────────────────────
-def get_all_recordings() -> list[dict]:
+def get_all_recordings(category_id: int = None) -> list[dict]:
     """
     全録音データを新しい順で返す。
     Returns:
         [{"id": int, "title": str, ...}, ...]
     """
     with get_connection() as conn:
-        rows = conn.execute(
-            "SELECT * FROM recordings ORDER BY created_at DESC"
-        ).fetchall()
+        if category_id is not None:
+            rows = conn.execute(
+                "SELECT * FROM recordings WHERE category_id = ? ORDER BY created_at DESC",
+                (category_id,)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM recordings ORDER BY created_at DESC"
+            ).fetchall()
     return [dict(row) for row in rows]
 
 
@@ -205,6 +211,16 @@ def update_title_and_memo(
 
 
 # ── 削除 ──────────────────────────────────────────
+def delete_all_recordings() -> int:
+    """全録音データをDBから削除する"""
+    with get_connection() as conn:
+        count = conn.execute("SELECT COUNT(*) FROM recordings").fetchone()[0]
+        conn.execute("DELETE FROM recordings")
+        conn.commit()
+    print(f"[database] 全録音削除: {count}件")
+    return count
+
+
 def delete_recording(record_id: int) -> dict:
     """
     指定IDの録音データをDBから削除する。

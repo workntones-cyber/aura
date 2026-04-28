@@ -859,3 +859,17 @@ main.narrow { max-width: 640px; }
   border-color: rgba(239,68,68,0.3);
   color: #FCA5A5;
 }
+
+/* ── 結果タブ ─────────────────────────────────── */
+.result-tabs {
+  display: flex; gap: 4px; margin-bottom: 0;
+  border-bottom: 1px solid var(--border);
+}
+.result-tab {
+  padding: 8px 16px; font-size: 13px; font-weight: 500;
+  cursor: pointer; border: none; background: transparent;
+  color: var(--muted); border-bottom: 2px solid transparent;
+  margin-bottom: -1px; transition: all 0.2s; font-family: inherit;
+}
+.result-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.result-tab:hover { color: var(--text); }

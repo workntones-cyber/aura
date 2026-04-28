@@ -39,4 +39,4 @@ build/
 *.db
 *.db-shm
 *.db-wal
-check_*.py
+check*.py

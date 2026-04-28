@@ -18,6 +18,7 @@ const speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
 // ── 初期化 ────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   buildVisualizer();
+  loadCategories();
   loadHistory();
   checkApiKey();
   checkBlackHole();
@@ -78,6 +79,24 @@ async function startRecording() {
   const data = await res.json();
   if (data.status !== 'started') { showToast('❌ ' + (data.message || '録音開始に失敗しました')); return; }
 
+  // 前回の結果をクリア
+  document.getElementById('resultSection')?.classList.remove('visible');
+  document.getElementById('processSection')?.classList.remove('visible');
+  ['transcriptBody', 'cleanedBody', 'summaryBody'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = '';
+  });
+  // ステップ表示をリセット
+  ['step1','step2','step3'].forEach((sid, i) => {
+    const el = document.getElementById(sid);
+    if (!el) return;
+    el.className = 'process-step';
+    el.querySelector('.step-icon').textContent = ['①','②','③'][i];
+    el.querySelector('span').textContent = ['文字起こし中...','クリーニング中...','AI要約中...'][i];
+  });
+  // タブをデフォルトに戻す
+  switchResultTab('transcript');
+
   isRecording = true;
   seconds = 0;
   document.getElementById('recordBtn').classList.add('recording');
@@ -103,8 +122,9 @@ async function stopRecording() {
   document.getElementById('recordTimer').classList.remove('visible');
   document.getElementById('visualizer').classList.remove('recording');
 
-  const title = document.getElementById('titleInput').value || '無題';
-  const memo  = document.getElementById('memoInput').value  || '';
+  const title      = document.getElementById('titleInput').value || '無題';
+  const memo       = document.getElementById('memoInput').value  || '';
+  const categoryId = parseInt(document.getElementById('categorySelect')?.value || '1');
 
   const res  = await fetch('/api/record/stop', {
     method: 'POST',
@@ -134,52 +154,84 @@ async function runTranscribe(recordId) {
   [step1, step2, step3].forEach(s => { if(s) s.classList.remove('error'); });
   step1.classList.add('active');
 
-  let data;
+  // ── ① 文字起こし ──────────────────────────────
+  let transcribeData;
   try {
-    const res = await fetch('/api/transcribe', {
+    const res = await fetch('/api/transcribe_only', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ record_id: recordId }),
     });
-    data = await res.json();
+    transcribeData = await res.json();
   } catch (e) {
-    showTranscribeError('ネットワークエラーが発生しました。サーバーが起動しているか確認してください。');
+    showTranscribeError('ネットワークエラーが発生しました。');
     return;
   }
 
-  if (data.status === 'error') {
-    showTranscribeError(data.message || 'エラーが発生しました。');
+  if (transcribeData.status === 'error') {
+    showTranscribeError(transcribeData.message || 'エラーが発生しました。');
     await loadHistory();
     return;
   }
 
-  // step1 完了
+  // 文字起こし完了 → 即座に表示
   step1.classList.remove('active'); step1.classList.add('done');
   step1.querySelector('.step-icon').textContent = '✓';
   step1.querySelector('span').textContent = '文字起こし完了';
+  document.getElementById('transcriptBody').textContent = transcribeData.transcript;
+  document.getElementById('resultSection').classList.add('visible');
+  switchResultTab('transcript');
 
-  // step2 クリーニング
+  // ── ② クリーニング ────────────────────────────
   if (step2) {
     step2.classList.add('active');
     step2.querySelector('span').textContent = 'クリーニング中...';
-    await new Promise(r => setTimeout(r, 300));
+  }
+  let cleanData;
+  try {
+    const res = await fetch('/api/clean', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ record_id: recordId }),
+    });
+    cleanData = await res.json();
+  } catch (e) { cleanData = { status: 'error' }; }
+
+  if (step2) {
     step2.classList.remove('active'); step2.classList.add('done');
     step2.querySelector('.step-icon').textContent = '✓';
     step2.querySelector('span').textContent = 'クリーニング完了';
   }
+  if (cleanData?.cleaned_transcript) {
+    document.getElementById('cleanedBody').textContent = cleanData.cleaned_transcript;
+  }
 
-  // step3 要約
+  // ── ③ 要約 ───────────────────────────────────
   if (step3) {
     step3.classList.add('active');
-    await new Promise(r => setTimeout(r, 300));
+    step3.querySelector('span').textContent = 'AI要約中...';
+  }
+  let summaryData;
+  try {
+    const res = await fetch('/api/summarize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ record_id: recordId }),
+    });
+    summaryData = await res.json();
+  } catch (e) { summaryData = { status: 'error' }; }
+
+  if (step3) {
     step3.classList.remove('active'); step3.classList.add('done');
     step3.querySelector('.step-icon').textContent = '✓';
     step3.querySelector('span').textContent = 'AI要約完了';
   }
-
-  document.getElementById('transcriptBody').textContent = data.transcript;
-  document.getElementById('summaryBody').textContent    = data.ai_summary;
-  document.getElementById('resultSection').classList.add('visible');
+  if (summaryData?.status === 'skipped') {
+    document.getElementById('summaryBody').textContent = '（録音が短すぎるため要約をスキップしました）';
+  } else if (summaryData?.ai_summary) {
+    document.getElementById('summaryBody').textContent = summaryData.ai_summary;
+    switchResultTab('summary');
+  }
 
   document.getElementById('titleInput').value = '';
   document.getElementById('memoInput').value  = '';
@@ -304,7 +356,9 @@ async function loadHistory() {
       <div class="history-header" onclick="toggleHistory(${r.id})">
         <div class="history-icon">🎙️</div>
         <div class="history-meta">
-          <div class="history-title">${escHtml(r.title)}</div>
+          <div class="history-title">${escHtml(r.title)}
+            ${(() => { const cat = getCategoryById(r.category_id || 1); return `<span style="display:inline-block;padding:1px 8px;border-radius:99px;font-size:11px;background:${cat.color}22;color:${cat.color};border:1px solid ${cat.color}44;margin-left:6px;">${cat.name}</span>`; })()}
+          </div>
           <div class="history-date">${r.created_at}</div>
         </div>
         <div class="history-chevron">▾</div>
@@ -313,6 +367,14 @@ async function loadHistory() {
       <div class="history-body">
         <div class="history-divider"></div>
 
+        <div class="history-edit-row">
+          <select class="history-edit-input" id="edit-category-${r.id}"
+            style="cursor:pointer;" onchange="updateRecordingCategory(${r.id}, this.value)">
+            ${_categories.map(cat =>
+              `<option value="${cat.id}" ${cat.id === (r.category_id || 1) ? 'selected' : ''}>${cat.name}</option>`
+            ).join('')}
+          </select>
+        </div>
         <div class="history-edit-row">
           <input class="history-edit-input" id="edit-title-${r.id}"
             type="text" value="${escHtml(r.title)}" placeholder="タイトル" />
@@ -524,12 +586,13 @@ async function updateSettingsBadge() {
     const settings = await res.json();
 
     const isSystem   = settings.recording_source === 'system';
+    const isBoth     = settings.recording_source === 'both';
     const isBusiness = settings.ai_mode === 'business';
 
     const rows = [
       {
-        badgeClass: isSystem ? 'settings-badge settings-badge-system' : 'settings-badge',
-        badgeText:  isSystem ? '🖥️ システム音声' : '🎤 マイク入力',
+        badgeClass: (isSystem || isBoth) ? 'settings-badge settings-badge-system' : 'settings-badge',
+        badgeText:  isBoth ? '🎤🖥️ マイク＋システム音声' : isSystem ? '🖥️ システム音声' : '🎤 マイク入力',
         noticeIcon: isSystem ? '🔊' : '⚠️',
         noticeText: isSystem ? 'PCのすべての音声を録音します' : 'オンライン会議の音声は録音されません',
       },
@@ -640,6 +703,39 @@ function showModelBanner(msg, type) {
     <div class="api-warning-text">${msg}</div>`;
 }
 
+// ── カテゴリ管理 ──────────────────────────────────
+let _categories = [];
+
+async function loadCategories() {
+  try {
+    const res = await fetch('/api/categories');
+    _categories = await res.json();
+    renderCategorySelect();
+  } catch (e) {}
+}
+
+function renderCategorySelect() {
+  const sel = document.getElementById('categorySelect');
+  if (!sel) return;
+  const current = sel.value;
+  sel.innerHTML = _categories.map(cat =>
+    `<option value="${cat.id}" ${cat.id == current ? 'selected' : ''}>${cat.name}</option>`
+  ).join('');
+}
+
+function getCategoryById(id) {
+  return _categories.find(c => c.id === parseInt(id)) || { name: '未分類', color: '#6B7280' };
+}
+
+
+// ── 結果タブ切替 ──────────────────────────────────
+function switchResultTab(tab) {
+  ['transcript', 'cleaned', 'summary'].forEach(t => {
+    document.getElementById(`tab-${t}`)?.classList.toggle('active', t === tab);
+    const panel = document.getElementById(`panel-${t}`);
+    if (panel) panel.style.display = t === tab ? 'block' : 'none';
+  });
+}
 // ── sessionStorage による入力保持 ────────────────
 function restoreInputs() {
   const titleEl = document.getElementById('titleInput');
@@ -776,6 +872,20 @@ function setRetryState(recordId, state) {
       summaryBtn.disabled         = true;
       summaryBtn.textContent      = '⏳ 要約中...';
       break;
+  }
+}
+
+async function updateRecordingCategory(recordId, categoryId) {
+  try {
+    await fetch(`/api/recordings/${recordId}/category`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ category_id: parseInt(categoryId) }),
+    });
+    showToast('✅ カテゴリを変更しました');
+    await loadHistory();
+  } catch (e) {
+    showToast('❌ カテゴリの変更に失敗しました');
   }
 }
 

@@ -9,11 +9,13 @@ from flask import Flask, jsonify, render_template, request, send_from_directory
 from app.database import (
     create_recording,
     delete_recording,
+    delete_all_recordings,
     get_all_recordings,
     get_recording,
     init_db,
     update_title_and_memo,
     update_transcript_and_summary,
+    update_cleaned_transcript,
 )
 from app.services.recorder import delete_recording as delete_wav
 from app.services.recorder import get_status, list_recordings, start, stop
@@ -43,6 +45,8 @@ init_db()
 # ══════════════════════════════════════════════════
 #  ページルーティング
 # ══════════════════════════════════════════════════
+
+
 
 
 @app.route("/api/shutdown", methods=["POST"])
@@ -79,6 +83,11 @@ def index():
     return render_template("index.html", active_page="index")
 
 
+
+
+
+
+
 @app.route("/settings")
 def settings():
     """設定画面"""
@@ -111,10 +120,10 @@ def record_stop():
     if result["status"] == "error":
         return jsonify(result), 500
 
-    # リクエストからタイトル・メモを取得（未入力の場合はデフォルト値）
-    data = request.get_json(silent=True) or {}
+    # リクエストからタイトル・メモ・カテゴリを取得
+    data        = request.get_json(silent=True) or {}
     title = data.get("title", "無題").strip() or "無題"
-    memo = data.get("memo", "").strip()
+    memo  = data.get("memo", "").strip()
 
     # DBに登録
     record_id = create_recording(
@@ -143,6 +152,101 @@ def record_status():
 # ══════════════════════════════════════════════════
 #  文字起こし & 要約 API
 # ══════════════════════════════════════════════════
+
+
+@app.route("/api/transcribe_only", methods=["POST"])
+def transcribe_only():
+    """文字起こしのみ実行してDBに保存する（クリーニング・要約は別途実行）"""
+    data      = request.get_json(silent=True) or {}
+    record_id = data.get("record_id")
+
+    if not record_id:
+        return jsonify({"status": "error", "message": "record_id が必要です"}), 400
+
+    record = get_recording(record_id)
+    if not record:
+        return jsonify({"status": "error", "message": "データが見つかりません"}), 404
+
+    try:
+        env     = _read_env()
+        ai_mode = env.get("AI_MODE", "personal")
+
+        if ai_mode == "business":
+            transcript = _transcribe_faster_whisper_only(record["wav_file"])
+        else:
+            api_key = env.get("GROQ_API_KEY", "").strip()
+            if not api_key:
+                return jsonify({"status": "error", "message": "Groq APIキーが設定されていません"}), 400
+            from groq import Groq
+            transcript = _transcribe_groq_only(record["wav_file"], Groq(api_key=api_key))
+
+        if not transcript:
+            return jsonify({"status": "error", "message": "文字起こし結果が空でした（無音または認識できませんでした）"}), 500
+
+        # DBに文字起こし結果のみ保存
+        from app.database import get_connection
+        from datetime import datetime
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with get_connection() as conn:
+            conn.execute(
+                "UPDATE recordings SET transcript=?, transcript_status='done', updated_at=? WHERE id=?",
+                (transcript, now, record_id)
+            )
+            conn.commit()
+
+        return jsonify({"status": "done", "transcript": transcript}), 200
+
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+def _transcribe_faster_whisper_only(wav_filename: str) -> str:
+    """faster-whisperで文字起こしのみ実行"""
+    import sys
+    from pathlib import Path
+    if getattr(sys, "frozen", False):
+        BASE = Path(sys.executable).resolve().parent
+    else:
+        BASE = Path(__file__).resolve().parent
+    wav_path = BASE / "uploads" / wav_filename
+
+    import app.services.transcriber as _tr
+    env              = _tr._read_env()
+    recording_source = env.get("RECORDING_SOURCE", "mic")
+    use_vad          = recording_source != "both"
+    # ロード済みモデルを使用
+    if _tr._whisper_model is None:
+        _tr.preload_model()
+        import time
+        for _ in range(60):
+            if _tr._whisper_model is not None:
+                break
+            time.sleep(1)
+    model = _tr._whisper_model
+    if model is None:
+        raise Exception("Whisperモデルがロードされていません")
+
+    kwargs = dict(language="ja", beam_size=5)
+    if use_vad:
+        kwargs["vad_filter"]    = True
+        kwargs["vad_parameters"] = {"min_silence_duration_ms": 500}
+
+    segments, _ = model.transcribe(str(wav_path), **kwargs)
+    return " ".join([seg.text.strip() for seg in segments]).strip()
+
+
+def _transcribe_groq_only(wav_filename: str, client) -> str:
+    """Groq Whisperで文字起こしのみ実行"""
+    import sys
+    from pathlib import Path
+    if getattr(sys, "frozen", False):
+        BASE = Path(sys.executable).resolve().parent
+    else:
+        BASE = Path(__file__).resolve().parent
+    wav_path = BASE / "uploads" / wav_filename
+
+    import app.services.transcriber as _tr
+    return _tr._call_whisper(client, wav_path)
 
 @app.route("/api/transcribe", methods=["POST"])
 def transcribe():
@@ -446,15 +550,10 @@ def clean_only():
         ai_mode = env.get("AI_MODE", "personal")
 
         import app.services.transcriber as _tr
-        if ai_mode == "business":
-            cleaned = _tr._clean_transcript_ollama(record["transcript"])
-        else:
-            api_key = env.get("GROQ_API_KEY", "").strip()
-            if not api_key:
-                return jsonify({"status": "error", "message": "Groq APIキーが設定されていません"}), 400
-            from groq import Groq
-            client  = Groq(api_key=api_key)
-            cleaned = _tr._clean_transcript_groq(client, record["transcript"])
+        cleaned = _tr._clean_transcript_ollama(record["transcript"])
+        # クリーニング結果が空なら元テキストを使用
+        if not cleaned or not cleaned.strip():
+            cleaned = record["transcript"]
 
         import app.database as _db
         _db.update_cleaned_transcript(record_id, cleaned)
@@ -481,8 +580,33 @@ def summarize_only():
 
     try:
         extra_prompt = data.get("extra_prompt", "").strip()
-        from app.services.transcriber import _summarize_ollama
-        ai_summary = _summarize_ollama(record["transcript"], extra_prompt)
+        env     = _read_env()
+        ai_mode = env.get("AI_MODE", "personal")
+
+        # クリーニング済みテキストがあればそちらを使用
+        text_to_summarize = record.get("cleaned_transcript") or record.get("transcript", "")
+        if not text_to_summarize:
+            return jsonify({"status": "error", "message": "要約するテキストがありません"}), 400
+
+        # 短すぎる場合は要約スキップ（DBには保存しない）
+        if len(text_to_summarize) < 100:
+            return jsonify({
+                "status":     "skipped",
+                "ai_summary": "",
+                "message":    "録音が短すぎるため要約をスキップしました",
+            }), 200
+
+        import app.services.transcriber as _tr
+        if ai_mode == "business":
+            ai_summary = _tr._summarize_ollama(text_to_summarize, extra_prompt)
+        else:
+            api_key = env.get("GROQ_API_KEY", "").strip()
+            if not api_key:
+                return jsonify({"status": "error", "message": "Groq APIキーが設定されていません"}), 400
+            from groq import Groq
+            client     = Groq(api_key=api_key)
+            ai_summary = _tr._call_llama(client, text_to_summarize)
+
         update_transcript_and_summary(record_id, record["transcript"], ai_summary)
         return jsonify({"status": "done", "ai_summary": ai_summary}), 200
     except Exception as e:
